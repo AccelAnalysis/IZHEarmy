@@ -1,0 +1,2 @@
+'use strict';
+if (!document.querySelector('#operationsStyles')) document.head.insertAdjacentHTML('beforeend', '<style id="operationsStyles">.table-head{position:sticky;top:0;background:rgb(2 6 23);z-index:2}.pill{display:inline-flex;align-items:center;border-radius:999px;padding:.25rem .65rem;font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em}.drawer{transition:transform .25s ease}.drawer-hidden{transform:translateX(100%)}</style>');
