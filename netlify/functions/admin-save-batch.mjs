@@ -1,5 +1,6 @@
 import { getStore } from '@netlify/blobs';
 import { requireAdmin } from './_shared/admin-auth.mjs';
+import { findCampaignById } from './_shared/campaign-service.mjs';
 import {
   appendStatusHistory,
   BATCH_STATUSES,
@@ -30,6 +31,7 @@ function cleanItems(items) {
       color: cleanText(item?.color, 80),
       sku: cleanText(item?.sku, 160),
       variantSku: cleanText(item?.variantSku, 160),
+      campaignId: cleanText(item?.campaignId, 100),
       quantity: Math.max(1, Math.min(1000, Number(item?.quantity || 1)))
     };
   }).filter(Boolean);
@@ -67,7 +69,7 @@ async function syncOrder(item, batch, remove = false) {
   if (!entry) return;
   const assignments = Array.isArray(entry.data.batchAssignments) ? [...entry.data.batchAssignments] : [];
   const remaining = assignments.filter((assignment) => assignment.sourceItemId !== item.sourceItemId);
-  if (!remove) remaining.push({ batchId: batch.id, batchStatus: batch.status, sourceItemId: item.sourceItemId, itemIndex: item.itemIndex, quantity: item.quantity });
+  if (!remove) remaining.push({ batchId: batch.id, batchStatus: batch.status, sourceItemId: item.sourceItemId, itemIndex: item.itemIndex, quantity: item.quantity, campaignId: batch.campaignId || '' });
   const totalItems = Math.max(1, (entry.data.items || []).length);
   const assignedIndexes = new Set(remaining.map((assignment) => assignment.itemIndex).filter((value) => value != null));
   const allAssigned = assignedIndexes.size >= totalItems;
@@ -121,18 +123,27 @@ export default async (request) => {
     const id = cleanText(input.id, 100) || createBatchId();
     const name = cleanText(input.name, 180) || id;
     const status = cleanText(input.status, 40) || 'draft';
+    const campaignId = cleanText(input.campaignId, 100);
     if (!BATCH_STATUSES.includes(status)) return json({ error: 'Invalid production batch status.' }, 400);
+    const campaign = campaignId ? await findCampaignById(campaignId) : null;
+    if (campaignId && !campaign) return json({ error: 'The selected campaign was not found.' }, 404);
     const store = getStore('izhe-production-batches');
     const entry = await store.getWithMetadata(id, { type: 'json', consistency: 'strong' });
     if (payload.expectedUpdatedAt && entry?.data?.updatedAt !== payload.expectedUpdatedAt) {
       return json({ error: 'This production batch changed in another session. Reload before saving.' }, 409);
     }
     const items = cleanItems(input.items);
+    if (campaignId && items.some((item) => item.campaignId !== campaignId)) {
+      return json({ error: 'A campaign production batch can contain only fulfillment units attributed to that campaign.' }, 400);
+    }
     const now = new Date().toISOString();
     const batch = {
       id,
       name,
       vendor: cleanText(input.vendor, 180),
+      campaignId,
+      campaignTitle: campaign?.title || '',
+      campaignOrganization: campaign?.organization || '',
       status,
       dueDate: input.dueDate ? new Date(input.dueDate).toISOString() : '',
       submittedAt: status === 'submitted' && !entry?.data?.submittedAt ? now : entry?.data?.submittedAt || '',
