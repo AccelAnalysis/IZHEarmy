@@ -40,13 +40,15 @@ test('campaign restricts products by selected collections and products', () => {
   assert.equal(campaignAllowsProduct({ ...baseCampaign, productIds: ['shirt-2'], collectionIds: [] }, catalog.products[1]), true);
 });
 
-test('campaign publication and ordering windows are enforced', () => {
+test('campaign page remains visible while ordering windows are enforced', () => {
   const during = new Date('2026-07-14T12:00:00.000Z');
   const before = new Date('2026-06-30T12:00:00.000Z');
-  assert.equal(campaignIsPublic(baseCampaign, during), true);
+  const after = new Date('2026-08-01T12:00:00.000Z');
+  assert.equal(campaignIsPublic(baseCampaign), true);
   assert.equal(campaignIsPurchasable(baseCampaign, during), true);
   assert.equal(campaignIsPurchasable(baseCampaign, before), false);
-  assert.equal(campaignIsPublic({ ...baseCampaign, publishStatus: 'draft' }, during), false);
+  assert.equal(campaignIsPurchasable(baseCampaign, after), false);
+  assert.equal(campaignIsPublic({ ...baseCampaign, publishStatus: 'draft' }), false);
 });
 
 test('campaign support models calculate in cents', () => {
@@ -55,7 +57,7 @@ test('campaign support models calculate in cents', () => {
   assert.equal(calculateSupportAmount({ ...baseCampaign, supportModel: 'fixed', supportRate: 5000 }, { revenue: 10000, soldUnits: 4 }), 5000);
 });
 
-test('campaign metrics include only attributed records', () => {
+test('campaign metrics use attributed merchandise revenue and retain gross collected', () => {
   const report = computeCampaignMetrics(baseCampaign, {
     orders: [
       { campaignId: 'CAM-1', status: 'paid', amountTotal: 5000, items: [{ unitAmount: 2000, quantity: 2 }] },
@@ -66,6 +68,9 @@ test('campaign metrics include only attributed records', () => {
     batches: [{ campaignId: 'CAM-1', status: 'ready' }]
   });
   assert.equal(report.orderCount, 1);
+  assert.equal(report.revenue, 4000);
+  assert.equal(report.grossCollected, 5000);
+  assert.equal(report.supportAmount, 400);
   assert.equal(report.soldUnits, 2);
   assert.equal(report.codeCount, 2);
   assert.equal(report.claimRate, 50);
