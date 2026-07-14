@@ -12,6 +12,14 @@ export default async (request) => {
   if (!record) return json({ error: 'This claim code was not found.' }, 404);
   if (record.status !== 'active') return json({ error: 'This claim code has already been redeemed.' }, 409);
   const product = CATALOG[record.productId];
-  if (!product) return json({ error: 'The item linked to this code is unavailable.' }, 410);
-  return json({ valid: true, productId: product.id, productName: product.name, color: product.color, sizes: product.sizes });
+  if (!product?.giveOneEligible) return json({ error: 'The item linked to this code is unavailable.' }, 410);
+  return json({
+    valid: true,
+    productId: product.id,
+    productName: product.name,
+    audience: product.audience,
+    audienceLabel: product.audienceLabel,
+    fits: product.fits,
+    sizes: product.sizes
+  });
 };
