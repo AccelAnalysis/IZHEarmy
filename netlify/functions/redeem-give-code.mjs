@@ -7,7 +7,7 @@ export default async (request) => {
   if (request.method !== 'POST') return methodNotAllowed(['POST']);
   try {
     const payload = await request.json();
-    requireFields(payload, ['code', 'size', 'firstName', 'lastName', 'email', 'address1', 'city', 'state', 'postalCode']);
+    requireFields(payload, ['code', 'fit', 'size', 'firstName', 'lastName', 'email', 'address1', 'city', 'state', 'postalCode']);
     const code = normalizeCode(payload.code);
     if (!/^IZHE-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(code)) return json({ error: 'Enter a valid IZHE claim code.' }, 400);
 
@@ -17,8 +17,12 @@ export default async (request) => {
     if (current.data.status !== 'active') return json({ error: 'This claim code has already been redeemed.' }, 409);
 
     const product = CATALOG[current.data.productId];
+    const fitInput = cleanText(payload.fit, 20);
+    const fit = product?.fits.find((candidate) => candidate.toLowerCase() === fitInput.toLowerCase());
     const size = cleanText(payload.size, 5).toUpperCase();
-    if (!product || !product.sizes.includes(size)) return json({ error: 'Select a valid available size.' }, 400);
+    if (!product?.giveOneEligible || !fit) return json({ error: 'Select a valid available fit.' }, 400);
+    if (!product.sizes.includes(size)) return json({ error: 'Select a valid available size.' }, 400);
+
     const email = cleanText(payload.email, 254).toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: 'Enter a valid email address.' }, 400);
     const state = cleanText(payload.state, 2).toUpperCase();
@@ -32,6 +36,7 @@ export default async (request) => {
       code,
       productId: product.id,
       productName: product.name,
+      fit,
       size,
       recipient: {
         firstName: cleanText(payload.firstName, 80),
