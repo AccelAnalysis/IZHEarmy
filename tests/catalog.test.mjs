@@ -1,30 +1,42 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CATALOG, normalizeCart, cartTotal } from '../netlify/functions/_shared/catalog.mjs';
+import { normalizeCart, cartTotal } from '../netlify/functions/_shared/catalog.mjs';
+import { DEFAULT_CATALOG, DEFAULT_PRODUCTS } from '../netlify/functions/_shared/catalog-defaults.mjs';
+import { publicCatalog, validateProduct } from '../netlify/functions/_shared/catalog-rules.mjs';
+import { createGiveCode, normalizeCode } from '../netlify/functions/_shared/codes.mjs';
 
-test('catalog contains 24 shirt products and one book', () => {
-  const products = Object.values(CATALOG);
-  assert.equal(products.filter((product) => product.productType === 'apparel').length, 24);
-  assert.equal(products.filter((product) => product.productType === 'book').length, 1);
-  assert.equal(new Set(products.map((product) => product.lookupKey)).size, 25);
-});
-
-test('normalizes and merges matching apparel variants', () => {
+test('normalizes and merges matching product variants', () => {
   const cart = normalizeCart([
-    { productId: 'c1-yhwh-adult', fit: 'men', size: 'm', quantity: 1 },
-    { productId: 'c1-yhwh-adult', fit: 'Men', size: 'M', quantity: 2 }
+    { productId: 'c1-yhwh-adult', fit: 'Men', size: 'm', quantity: 1 },
+    { productId: 'c1-yhwh-adult', variantId: 'men-m', quantity: 2 }
   ]);
-  assert.deepEqual(cart, [{ productId: 'c1-yhwh-adult', fit: 'Men', size: 'M', quantity: 3 }]);
+  assert.deepEqual(cart, [{ productId: 'c1-yhwh-adult', variantId: 'men-m', fit: 'Men', size: 'M', color: 'Standard', quantity: 3 }]);
   assert.equal(cartTotal(cart), 11100);
 });
 
-test('normalizes book without fit or size', () => {
-  const cart = normalizeCart([{ productId: 'c1-book', quantity: 2 }]);
-  assert.deepEqual(cart, [{ productId: 'c1-book', fit: '', size: '', quantity: 2 }]);
-  assert.equal(cartTotal(cart), 4400);
+test('rejects unavailable or invalid variants', () => {
+  assert.throws(() => normalizeCart([{ productId: 'c1-yhwh-adult', fit: 'Men', size: '4XL', quantity: 1 }]), /available size and fit/);
+  const paused = DEFAULT_PRODUCTS.map((product) => product.id === 'c1-yhwh-adult' ? { ...product, availabilityStatus: 'paused' } : product);
+  assert.throws(() => normalizeCart([{ productId: 'c1-yhwh-adult', variantId: 'men-m', quantity: 1 }], paused), /no longer available/);
 });
 
-test('rejects invalid fit and size', () => {
-  assert.throws(() => normalizeCart([{ productId: 'c1-yhwh-adult', fit: 'Boys', size: 'M', quantity: 1 }]), /valid fit/);
-  assert.throws(() => normalizeCart([{ productId: 'c1-yhwh-kids', fit: 'Boys', size: '3XL', quantity: 1 }]), /valid size/);
+test('public catalog excludes drafts and marks paused products unavailable', () => {
+  const catalog = structuredClone(DEFAULT_CATALOG);
+  catalog.products[0].status = 'draft';
+  catalog.products[1].availabilityStatus = 'paused';
+  const result = publicCatalog(catalog);
+  assert.equal(result.products.some((product) => product.id === catalog.products[0].id), false);
+  assert.equal(result.products.find((product) => product.id === catalog.products[1].id).isPurchasable, false);
+});
+
+test('published apparel requires an image and variants', () => {
+  const base = structuredClone(DEFAULT_PRODUCTS[0]);
+  assert.throws(() => validateProduct({ ...base, images: [] }, DEFAULT_CATALOG.collections), /require at least one image/);
+  assert.throws(() => validateProduct({ ...base, variants: [] }, DEFAULT_CATALOG.collections), /at least one variant/);
+});
+
+test('creates valid Give One code', () => {
+  const code = createGiveCode();
+  assert.match(code, /^IZHE-[A-Z0-9]{4}-[A-Z0-9]{4}$/);
+  assert.equal(normalizeCode(code.toLowerCase()), code);
 });

@@ -1,0 +1,1 @@
+'use strict';renderCart();loadCatalog().catch((error)=>{const root=$('#collection .max-w-7xl');if(root)root.innerHTML=`<div class="border border-red-500/40 bg-red-950/20 rounded-2xl p-8 text-center"><h2 class="text-2xl font-bold mb-3">The store catalog is temporarily unavailable.</h2><p class="text-brand-muted">${escapeHtml(error.message)}</p></div>`;toast(error.message);});

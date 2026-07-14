@@ -1,22 +1,21 @@
 import { randomUUID } from 'node:crypto';
 import { getStore } from '@netlify/blobs';
 import Stripe from 'stripe';
-import { CATALOG, normalizeCart } from './_shared/catalog.mjs';
+import { normalizeCart } from './_shared/catalog.mjs';
+import { loadCatalog, publicCatalog } from './_shared/catalog-service.mjs';
 import { json, methodNotAllowed } from './_shared/http.mjs';
 
-async function resolvePrices(stripe, cart) {
-  const lookupKeys = [...new Set(cart.map((item) => CATALOG[item.productId].lookupKey))];
+async function resolvePrices(stripe, cart, productMap) {
+  const lookupKeys = [...new Set(cart.map((item) => productMap.get(item.productId).lookupKey))];
   const prices = [];
-
   for (let index = 0; index < lookupKeys.length; index += 10) {
     const batch = lookupKeys.slice(index, index + 10);
     const response = await stripe.prices.list({ active: true, lookup_keys: batch, limit: 100 });
     prices.push(...response.data);
   }
-
   const byLookupKey = new Map(prices.map((price) => [price.lookup_key, price]));
   for (const item of cart) {
-    const product = CATALOG[item.productId];
+    const product = productMap.get(item.productId);
     const price = byLookupKey.get(product.lookupKey);
     if (!price) throw new Error(`Stripe price ${product.lookupKey} is unavailable.`);
     if (price.currency !== 'usd' || price.unit_amount !== product.unitAmount) {
@@ -26,18 +25,50 @@ async function resolvePrices(stripe, cart) {
   return byLookupKey;
 }
 
+function orderItemSnapshot(product, item) {
+  const variant = product.variants?.find((candidate) => candidate.id === item.variantId) || null;
+  return {
+    productId: product.id,
+    productName: product.name,
+    shortName: product.shortName,
+    productType: product.productType,
+    collectionId: product.collectionId,
+    sku: product.sku,
+    lookupKey: product.lookupKey,
+    unitAmount: product.unitAmount,
+    currency: product.currency,
+    giveOneEligible: product.giveOneEligible,
+    giveOneUnitsPerPaidUnit: product.giveOneUnitsPerPaidUnit,
+    productImage: product.primaryImage?.url || product.images?.[0]?.url || '',
+    variantId: item.variantId,
+    fit: variant?.fit || item.fit || '',
+    size: variant?.size || item.size || '',
+    color: variant?.color || item.color || '',
+    variantSku: variant?.sku || '',
+    eligibleGiftVariants: (product.variants || []).filter((candidate) => candidate.status !== 'disabled' && !['retired', 'sold_out'].includes(candidate.availabilityStatus)).map((candidate) => ({
+      id: candidate.id,
+      fit: candidate.fit,
+      size: candidate.size,
+      color: candidate.color,
+      sku: candidate.sku
+    })),
+    quantity: item.quantity
+  };
+}
+
 export default async (request) => {
   if (request.method !== 'POST') return methodNotAllowed(['POST']);
-  if (!process.env.STRIPE_SECRET_KEY) {
-    return json({ error: 'Checkout is not configured yet. Add STRIPE_SECRET_KEY in Netlify.' }, 503);
-  }
+  if (!process.env.STRIPE_SECRET_KEY) return json({ error: 'Checkout is not configured yet. Add STRIPE_SECRET_KEY in Netlify.' }, 503);
 
   let draftId = '';
   try {
     const payload = await request.json();
-    const cart = normalizeCart(payload.cart);
+    const { catalog } = await loadCatalog();
+    const liveCatalog = publicCatalog(catalog);
+    const cart = normalizeCart(payload.cart, liveCatalog.products.filter((product) => product.isPurchasable));
+    const productMap = new Map(liveCatalog.products.map((product) => [product.id, product]));
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-    const prices = await resolvePrices(stripe, cart);
+    const prices = await resolvePrices(stripe, cart, productMap);
     const origin = new URL(request.url).origin;
     const siteUrl = (process.env.URL || process.env.SITE_URL || origin).replace(/\/$/, '');
     const shippingCents = Number.parseInt(process.env.IZHE_SHIPPING_CENTS || '699', 10);
@@ -45,18 +76,20 @@ export default async (request) => {
 
     draftId = randomUUID();
     const drafts = getStore('izhe-checkout-drafts');
+    const items = cart.map((item) => orderItemSnapshot(productMap.get(item.productId), item));
     await drafts.setJSON(draftId, {
       cart,
+      items,
+      catalogRevision: liveCatalog.revision,
       status: 'created',
       createdAt: new Date().toISOString()
     }, { onlyIfNew: true });
 
     const lineItems = cart.map((item) => ({
       quantity: item.quantity,
-      price: prices.get(CATALOG[item.productId].lookupKey).id
+      price: prices.get(productMap.get(item.productId).lookupKey).id
     }));
-
-    const hasGiveOneItems = cart.some((item) => CATALOG[item.productId].giveOneEligible);
+    const hasGiveOneItems = items.some((item) => item.giveOneEligible);
     const sessionConfig = {
       mode: 'payment',
       line_items: lineItems,
@@ -69,7 +102,7 @@ export default async (request) => {
       phone_number_collection: { enabled: true },
       customer_creation: 'always',
       invoice_creation: { enabled: true },
-      metadata: { draftId, source: 'izhe-website' },
+      metadata: { draftId, source: 'izhe-website', catalogRevision: String(liveCatalog.revision) },
       payment_intent_data: { metadata: { draftId, source: 'izhe-website' } },
       custom_text: {
         submit: {
@@ -101,6 +134,8 @@ export default async (request) => {
     const session = await stripe.checkout.sessions.create(sessionConfig);
     await drafts.setJSON(draftId, {
       cart,
+      items,
+      catalogRevision: liveCatalog.revision,
       status: 'checkout_created',
       sessionId: session.id,
       createdAt: new Date().toISOString()
