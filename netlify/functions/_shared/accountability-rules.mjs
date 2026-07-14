@@ -20,7 +20,10 @@ export function validateLedgerEntry(input, campaigns = []) {
   if (campaignId && !campaigns.some((campaign) => campaign.id === campaignId)) throw new Error('Select a valid campaign.');
   const amount = Math.round(Number(input?.amount || 0));
   if (!Number.isFinite(amount) || Math.abs(amount) > 1000000000) throw new Error('Enter a valid amount in cents.');
-  if (!['accountability_note'].includes(type) && amount === 0) throw new Error('A financial ledger entry requires a non-zero amount.');
+  if (type !== 'accountability_note' && amount === 0) throw new Error('A financial ledger entry requires a non-zero amount.');
+  if (['support_payment', 'payment_reversal', 'campaign_cost', 'cost_reversal'].includes(type) && amount < 0) {
+    throw new Error('Payments, reversals, and costs must be entered as positive amounts.');
+  }
   const now = new Date().toISOString();
   return {
     id: clean(input?.id, 120) || `LEDGER-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`,
@@ -85,7 +88,7 @@ export function campaignAccountability(campaign, records, ledger = []) {
 
 export function organizationAccountability(campaigns, records, ledger = []) {
   const campaignReports = campaigns.map((campaign) => campaignAccountability(campaign, records, ledger));
-  const generalOrders = (records.orders || []).filter((order) => !order.campaignId && !['cancelled', 'refunded_or_disputed'].includes(order.status));
+  const generalOrders = (records.orders || []).filter((order) => !order.campaignId && !['cancelled', 'refunded_or_disputed', 'refund_requires_review'].includes(order.status));
   const generalMerchandiseRevenue = generalOrders.reduce((sum, order) => sum + (order.items || []).reduce((itemTotal, item) => itemTotal + Number(item.unitAmount || 0) * Number(item.quantity || 0), 0), 0);
   const generalGrossCollected = generalOrders.reduce((sum, order) => sum + Number(order.amountTotal || 0), 0);
   const total = (key) => campaignReports.reduce((sum, report) => sum + Number(report[key] || 0), 0);
