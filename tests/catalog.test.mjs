@@ -1,23 +1,30 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeCart, cartTotal } from '../netlify/functions/_shared/catalog.mjs';
-import { createGiveCode, normalizeCode } from '../netlify/functions/_shared/codes.mjs';
+import { CATALOG, normalizeCart, cartTotal } from '../netlify/functions/_shared/catalog.mjs';
 
-test('normalizes and merges matching cart rows', () => {
+test('catalog contains 24 shirt products and one book', () => {
+  const products = Object.values(CATALOG);
+  assert.equal(products.filter((product) => product.productType === 'apparel').length, 24);
+  assert.equal(products.filter((product) => product.productType === 'book').length, 1);
+  assert.equal(new Set(products.map((product) => product.lookupKey)).size, 25);
+});
+
+test('normalizes and merges matching apparel variants', () => {
   const cart = normalizeCart([
-    { productId: 'core', size: 'm', quantity: 1 },
-    { productId: 'core', size: 'M', quantity: 2 }
+    { productId: 'c1-yhwh-adult', fit: 'men', size: 'm', quantity: 1 },
+    { productId: 'c1-yhwh-adult', fit: 'Men', size: 'M', quantity: 2 }
   ]);
-  assert.deepEqual(cart, [{ productId: 'core', size: 'M', quantity: 3 }]);
-  assert.equal(cartTotal(cart), 10500);
+  assert.deepEqual(cart, [{ productId: 'c1-yhwh-adult', fit: 'Men', size: 'M', quantity: 3 }]);
+  assert.equal(cartTotal(cart), 11100);
 });
 
-test('rejects invalid size', () => {
-  assert.throws(() => normalizeCart([{ productId: 'core', size: '4XL', quantity: 1 }]), /valid size/);
+test('normalizes book without fit or size', () => {
+  const cart = normalizeCart([{ productId: 'c1-book', quantity: 2 }]);
+  assert.deepEqual(cart, [{ productId: 'c1-book', fit: '', size: '', quantity: 2 }]);
+  assert.equal(cartTotal(cart), 4400);
 });
 
-test('creates valid Give One code', () => {
-  const code = createGiveCode();
-  assert.match(code, /^IZHE-[A-Z0-9]{4}-[A-Z0-9]{4}$/);
-  assert.equal(normalizeCode(code.toLowerCase()), code);
+test('rejects invalid fit and size', () => {
+  assert.throws(() => normalizeCart([{ productId: 'c1-yhwh-adult', fit: 'Boys', size: 'M', quantity: 1 }]), /valid fit/);
+  assert.throws(() => normalizeCart([{ productId: 'c1-yhwh-kids', fit: 'Boys', size: '3XL', quantity: 1 }]), /valid size/);
 });
