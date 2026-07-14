@@ -18,9 +18,9 @@ export const CONTENT_SCHEMAS = {
       question: { label: 'Question', type: 'text', max: 180 },
       body: { label: 'Supporting message', type: 'textarea', max: 1200 },
       primaryLabel: { label: 'Primary button label', type: 'text', max: 80 },
-      primaryTarget: { label: 'Primary button target', type: 'text', max: 180 },
+      primaryTarget: { label: 'Primary button target', type: 'link', max: 500 },
       secondaryLabel: { label: 'Secondary button label', type: 'text', max: 80 },
-      secondaryTarget: { label: 'Secondary button target', type: 'text', max: 180 },
+      secondaryTarget: { label: 'Secondary button target', type: 'link', max: 500 },
       backgroundImage: { label: 'Background image URL', type: 'url', max: 1200 }
     }
   },
@@ -71,12 +71,25 @@ export const CONTENT_SCHEMAS = {
     fields: {
       message: { label: 'Announcement', type: 'textarea', max: 500 },
       linkLabel: { label: 'Link label', type: 'text', max: 80 },
-      linkUrl: { label: 'Link URL', type: 'text', max: 500 }
+      linkUrl: { label: 'Link URL', type: 'link', max: 500 }
     }
   }
 };
 
 const clean = (value, max = 1000) => String(value ?? '').trim().slice(0, max);
+
+function cleanUrl(value, max = 1200, allowHash = false) {
+  const url = clean(value, max);
+  if (!url) return '';
+  if (url.startsWith('/') || (allowHash && url.startsWith('#'))) return url;
+  try {
+    const parsed = new URL(url);
+    if (!['http:', 'https:', 'mailto:'].includes(parsed.protocol)) throw new Error();
+    return url;
+  } catch {
+    throw new Error('Content links and images must use HTTPS, HTTP, mailto, a site-relative path, or an approved page anchor.');
+  }
+}
 
 export function contentIsLive(record, now = new Date()) {
   if (!record || !['published', 'scheduled'].includes(record.status)) return false;
@@ -94,7 +107,12 @@ export function validateContentRecord(input, existing = null) {
   const status = CONTENT_STATUSES.includes(input?.status) ? input.status : existing?.status || 'draft';
   const fields = {};
   for (const [fieldKey, definition] of Object.entries(schema.fields)) {
-    fields[fieldKey] = clean(input?.fields?.[fieldKey], definition.max || 1000);
+    const value = input?.fields?.[fieldKey];
+    fields[fieldKey] = definition.type === 'url'
+      ? cleanUrl(value, definition.max)
+      : definition.type === 'link'
+        ? cleanUrl(value, definition.max, true)
+        : clean(value, definition.max || 1000);
   }
   if (status === 'published' && !Object.values(fields).some(Boolean)) throw new Error('Published content cannot be empty.');
   const now = new Date().toISOString();
