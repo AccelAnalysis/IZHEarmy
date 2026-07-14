@@ -4,6 +4,18 @@ export const RESOURCE_TYPES = ['book_excerpt', 'teaching_outline', 'discussion_g
 
 const clean = (value, max = 1000) => String(value ?? '').trim().slice(0, max);
 const cleanId = (value, max = 100) => clean(value, max).toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/(^-|-$)/g, '');
+function cleanUrl(value, max = 1200) {
+  const url = clean(value, max);
+  if (!url) return '';
+  if (url.startsWith('/')) return url;
+  try {
+    const parsed = new URL(url);
+    if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error();
+    return url;
+  } catch {
+    throw new Error('Teaching resource links must use HTTPS, HTTP, or a site-relative path.');
+  }
+}
 
 export function teachingIsLive(record, now = new Date()) {
   if (!record || !['published', 'scheduled'].includes(record.status)) return false;
@@ -24,8 +36,8 @@ export function validateBook(input, existing = null) {
     id, slug: cleanId(input?.slug || title, 120), title,
     subtitle: clean(input?.subtitle, 260), collectionId: cleanId(input?.collectionId, 100),
     description: clean(input?.description, 4000), author: clean(input?.author, 180),
-    coverImage: clean(input?.coverImage, 1200), sampleUrl: clean(input?.sampleUrl, 1200),
-    physicalProductId: cleanId(input?.physicalProductId, 100), digitalUrl: clean(input?.digitalUrl, 1200),
+    coverImage: cleanUrl(input?.coverImage, 1200), sampleUrl: cleanUrl(input?.sampleUrl, 1200),
+    physicalProductId: cleanId(input?.physicalProductId, 100), digitalUrl: cleanUrl(input?.digitalUrl, 1200),
     status, publishAt: input?.publishAt ? new Date(input.publishAt).toISOString() : '',
     unpublishAt: input?.unpublishAt ? new Date(input.unpublishAt).toISOString() : '',
     displayOrder: Number.isFinite(Number(input?.displayOrder)) ? Number(input.displayOrder) : 100,
@@ -71,7 +83,7 @@ export function validateResource(input, books, chapters, existing = null) {
   return {
     id, slug: cleanId(input?.slug || title, 120), title, type, access,
     bookId, chapterId, collectionId: cleanId(input?.collectionId, 100),
-    description: clean(input?.description, 3000), url: clean(input?.url, 1200), thumbnail: clean(input?.thumbnail, 1200),
+    description: clean(input?.description, 3000), url: cleanUrl(input?.url, 1200), thumbnail: cleanUrl(input?.thumbnail, 1200),
     campaignIds: [...new Set((Array.isArray(input?.campaignIds) ? input.campaignIds : []).map((value) => clean(value, 100)).filter(Boolean))],
     status, publishAt: input?.publishAt ? new Date(input.publishAt).toISOString() : '',
     unpublishAt: input?.unpublishAt ? new Date(input.unpublishAt).toISOString() : '',
