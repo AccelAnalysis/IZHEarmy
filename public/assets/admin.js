@@ -4,6 +4,25 @@
   let data = null;
   const $ = (selector) => document.querySelector(selector);
 
+  const designs = [
+    ['yhwh','YHWH — IZHE The One Who Is?'],
+    ['iam','I AM — IZHE Still I AM?'],
+    ['elohim','Elohim — IZHE Your Creator?'],
+    ['el','El — IZHE Mighty Enough?'],
+    ['adonai','Adonai — IZHE Your Lord?'],
+    ['shaddai','Shaddai — IZHE Enough?'],
+    ['el-shaddai','El Shaddai — IZHE God Almighty?'],
+    ['yhwh-tsevaot','YHWH Tsevaot — IZHE Fighting For You?'],
+    ['holy-one','The Holy One — IZHE Holy?'],
+    ['living-god','The Living God — IZHE Alive?'],
+    ['most-high','Most High — IZHE Above All?'],
+    ['lord-of-lords','Lord of Lords — IZHE Lord Over Lords?']
+  ];
+  $('#productId').innerHTML = designs.flatMap(([id,name]) => [
+    `<option value="c1-${id}-adult">${name} — Adult</option>`,
+    `<option value="c1-${id}-kids">${name} — Kids</option>`
+  ]).join('');
+
   $('#tokenForm').addEventListener('submit', (event) => {
     event.preventDefault();
     token = $('#token').value;
@@ -45,7 +64,7 @@
       <tr class="border-b border-white/5">
         <td class="p-4 font-mono">${redemption.confirmation}</td>
         <td class="p-4">${redemption.recipient.firstName} ${redemption.recipient.lastName}<br><span class="text-slate-400">${redemption.recipient.email}</span></td>
-        <td class="p-4">${redemption.productName}<br>Size ${redemption.size}</td>
+        <td class="p-4">${redemption.productName}<br>${redemption.fit || '—'} · Size ${redemption.size}</td>
         <td class="p-4">${redemption.recipient.address1}${redemption.recipient.address2 ? `<br>${redemption.recipient.address2}` : ''}<br>${redemption.recipient.city}, ${redemption.recipient.state} ${redemption.recipient.postalCode}</td>
         <td class="p-4">${redemption.status}${redemption.tracking ? `<br><span class="text-slate-400">${redemption.tracking}</span>` : ''}</td>
         <td class="p-4">${new Date(redemption.createdAt).toLocaleString()}</td>
@@ -93,11 +112,12 @@
 
   $('#export').addEventListener('click', () => {
     const rows = [
-      ['Confirmation', 'Code', 'Product', 'Size', 'First Name', 'Last Name', 'Email', 'Address 1', 'Address 2', 'City', 'State', 'ZIP', 'Status', 'Created'],
+      ['Confirmation', 'Code', 'Product', 'Fit', 'Size', 'First Name', 'Last Name', 'Email', 'Address 1', 'Address 2', 'City', 'State', 'ZIP', 'Status', 'Created'],
       ...data.redemptions.map((redemption) => [
         redemption.confirmation,
         redemption.code,
         redemption.productName,
+        redemption.fit,
         redemption.size,
         redemption.recipient.firstName,
         redemption.recipient.lastName,

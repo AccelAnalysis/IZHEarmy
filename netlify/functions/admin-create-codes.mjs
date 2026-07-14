@@ -9,10 +9,10 @@ export default async (request) => {
   if (!process.env.IZHE_ADMIN_TOKEN || token !== process.env.IZHE_ADMIN_TOKEN) return json({ error: 'Unauthorized.' }, 401);
   try {
     const payload = await request.json();
-    const product = CATALOG[cleanText(payload.productId, 40)];
+    const product = CATALOG[cleanText(payload.productId, 80)];
     const count = Number(payload.count || 1);
     const orderRef = cleanText(payload.orderRef, 100) || 'manual';
-    if (!product) return json({ error: 'Select a valid product.' }, 400);
+    if (!product?.giveOneEligible) return json({ error: 'Select a valid Give One eligible shirt.' }, 400);
     if (!Number.isInteger(count) || count < 1 || count > 50) return json({ error: 'Count must be between 1 and 50.' }, 400);
     const store = getStore('izhe-give-codes');
     const created = [];

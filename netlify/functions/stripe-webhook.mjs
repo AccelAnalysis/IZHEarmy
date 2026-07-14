@@ -1,5 +1,13 @@
+import { getStore } from '@netlify/blobs';
 import Stripe from 'stripe';
 import { fulfillPaidSession, cancelUnusedGiveCodes } from './_shared/fulfill.mjs';
+
+async function deleteCheckoutDraft(session) {
+  const draftId = session?.metadata?.draftId;
+  if (!draftId) return;
+  const drafts = getStore('izhe-checkout-drafts');
+  await drafts.delete(draftId).catch(() => {});
+}
 
 export default async (request) => {
   if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 });
@@ -21,6 +29,9 @@ export default async (request) => {
     if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
       const session = event.data.object;
       if (session.payment_status === 'paid' || event.type === 'checkout.session.async_payment_succeeded') await fulfillPaidSession(stripe, session);
+    }
+    if (event.type === 'checkout.session.async_payment_failed' || event.type === 'checkout.session.expired') {
+      await deleteCheckoutDraft(event.data.object);
     }
     if (event.type === 'charge.refunded') {
       await cancelUnusedGiveCodes(event.data.object.payment_intent, 'charge_refunded');

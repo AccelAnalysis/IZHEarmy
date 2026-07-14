@@ -12,7 +12,17 @@ export default async (request) => {
     const session = await stripe.checkout.sessions.retrieve(sessionId);
     if (session.payment_status !== 'paid') return json({ paymentStatus: session.payment_status, status: session.status });
     const order = await fulfillPaidSession(stripe, session);
-    return json({ paymentStatus: 'paid', customerEmail: order.customerEmail, amountTotal: order.amountTotal, currency: order.currency, giveCodes: order.giveCodes });
+    return json({
+      paymentStatus: 'paid',
+      customerEmail: order.customerEmail,
+      amountSubtotal: order.amountSubtotal,
+      amountShipping: order.amountShipping,
+      amountTax: order.amountTax,
+      amountTotal: order.amountTotal,
+      currency: order.currency,
+      cart: order.cart,
+      giveCodes: order.giveCodes
+    });
   } catch (error) {
     console.error('order-status', error);
     return json({ error: 'The order could not be located.' }, 404);

@@ -13,6 +13,19 @@ async function waitForOrder(orders, sessionId) {
   return null;
 }
 
+async function loadCheckoutCart(session) {
+  const draftId = session.metadata?.draftId || '';
+  if (draftId) {
+    const drafts = getStore('izhe-checkout-drafts');
+    const draft = await drafts.get(draftId, { type: 'json', consistency: 'strong' });
+    if (!draft?.cart) throw new Error('The checkout cart record could not be found.');
+    return { cart: draft.cart, draftId, drafts };
+  }
+
+  const cart = JSON.parse(session.metadata?.cart || '[]');
+  return { cart, draftId: '', drafts: null };
+}
+
 export async function fulfillPaidSession(stripe, session) {
   const orders = getStore('izhe-orders');
   const existing = await orders.get(session.id, { type: 'json', consistency: 'strong' });
@@ -28,14 +41,28 @@ export async function fulfillPaidSession(stripe, session) {
 
   const generatedCodes = [];
   const codes = getStore('izhe-give-codes');
+  let draftId = '';
+  let drafts = null;
   try {
-    const cart = JSON.parse(session.metadata?.cart || '[]');
-    await orders.setJSON(session.id, { status: 'processing', sessionId: session.id, cart, createdAt: new Date().toISOString() });
+    const checkout = await loadCheckoutCart(session);
+    const cart = checkout.cart;
+    draftId = checkout.draftId;
+    drafts = checkout.drafts;
+
+    await orders.setJSON(session.id, {
+      status: 'processing',
+      sessionId: session.id,
+      draftId,
+      cart,
+      createdAt: new Date().toISOString()
+    });
 
     for (const item of cart) {
       const product = CATALOG[item.productId];
-      if (!product) continue;
-      for (let index = 0; index < item.quantity; index += 1) {
+      if (!product?.giveOneEligible) continue;
+      const giveOneCount = item.quantity * (product.giveOneUnitsPerPaidUnit || 1);
+
+      for (let index = 0; index < giveOneCount; index += 1) {
         let code;
         let saved = false;
         for (let attempt = 0; attempt < 8 && !saved; attempt += 1) {
@@ -63,11 +90,15 @@ export async function fulfillPaidSession(stripe, session) {
 
     const order = {
       sessionId: session.id,
+      draftId,
       paymentIntentId: typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id || '',
       paymentStatus: session.payment_status,
       status: 'paid',
       customerEmail: session.customer_details?.email || session.customer_email || '',
       customerName: session.customer_details?.name || '',
+      amountSubtotal: session.amount_subtotal || 0,
+      amountShipping: session.shipping_cost?.amount_total || 0,
+      amountTax: session.total_details?.amount_tax || 0,
       amountTotal: session.amount_total || 0,
       currency: session.currency || 'usd',
       shippingDetails: session.shipping_details || session.collected_information?.shipping_details || null,
@@ -82,11 +113,14 @@ export async function fulfillPaidSession(stripe, session) {
       const index = getStore('izhe-payment-index');
       await index.setJSON(order.paymentIntentId, { sessionId: session.id }, { onlyIfNew: true });
     }
+    if (draftId && drafts) await drafts.delete(draftId).catch(() => {});
     return order;
   } catch (error) {
     for (const generated of generatedCodes) {
       const entry = await codes.get(generated.code, { type: 'json', consistency: 'strong' }).catch(() => null);
-      if (entry?.status === 'active' && entry.sourceSessionId === session.id) await codes.delete(generated.code).catch(() => {});
+      if (entry?.status === 'active' && entry.sourceSessionId === session.id) {
+        await codes.delete(generated.code).catch(() => {});
+      }
     }
     await orders.delete(session.id).catch(() => {});
     throw error;
