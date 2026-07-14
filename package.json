@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/*.test.mjs && node --check public/assets/app.js && node --check public/assets/admin.js",
+    "test": "node --test tests/*.test.mjs && node --check public/assets/app.js && node --check public/assets/admin.js && node --check public/assets/app-part-1.js && node --check public/assets/app-part-2.js && node --check public/assets/app-part-3.js && node --check public/assets/app-part-4.js && node --check public/assets/app-part-5.js && node --check public/assets/admin-part-1.js && node --check public/assets/admin-part-2.js && node --check public/assets/admin-part-3.js && node --check public/assets/admin-part-4.js && node --check public/assets/admin-part-5.js",
     "dev": "npx --yes netlify-cli@23.9.0 dev",
     "deploy": "npx --yes netlify-cli@23.9.0 deploy --prod"
   },
