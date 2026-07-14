@@ -1,28 +1,30 @@
 # IZHE Live Commerce and Give One Website
 
-This package turns the supplied IZHE design into an operational site with:
+This repository powers the IZHE storefront, Collection 1 book and apparel catalog, Stripe Checkout, Give One issuance and redemption, church inquiries, and fulfillment operations.
 
-- Persistent shopping cart with product, size, and quantity selection
-- Server-validated Stripe Checkout
-- Paid-order verification and idempotent Give One code generation
-- Printable QR claim cards on the post-checkout confirmation page
-- One-time code validation and atomic redemption
-- Shipping-address and size collection for Give One fulfillment
-- Netlify Forms for church campaign and support requests
-- Password-token operations dashboard for orders, codes, and redemptions
-- Manual Give One code generation for offline or church orders
-- CSV export of pending redemption records
-- Privacy, terms, contact, success, and error pages
+## Live catalog
+
+- 12 Collection 1 shirt designs
+- Adult pricing category: $37.00
+- Kids pricing category: $27.00
+- Adult fits: Men and Women
+- Kids fits: Boys and Girls
+- Physical companion book: $22.00
+- One Give One claim per paid shirt
+- The book is not Give One eligible
+
+Stripe prices are resolved server-side through lookup keys. The browser never supplies or controls the amount charged.
 
 ## Production stack
 
 - Static front end hosted by Netlify
 - Netlify Functions for checkout, webhooks, redemption, and operations
-- Netlify Blobs for orders, Give One codes, and redemption records
-- Stripe Checkout for payment collection and customer receipts
+- Netlify Blobs for checkout drafts, orders, Give One codes, and redemption records
+- Stripe-hosted Checkout for payment collection
+- Stripe Tax automatic calculation at Checkout
 - Netlify Forms for church and contact submissions
 
-## 1. Install and run locally
+## Install and run locally
 
 ```bash
 npm install
@@ -32,7 +34,7 @@ npm run dev
 
 Netlify Dev serves the site and local functions together.
 
-## 2. Required environment variables
+## Required environment variables
 
 Set these in Netlify under **Project configuration → Environment variables**:
 
@@ -40,15 +42,62 @@ Set these in Netlify under **Project configuration → Environment variables**:
 STRIPE_SECRET_KEY=sk_live_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 IZHE_ADMIN_TOKEN=a-long-random-secret
-IZHE_SHIPPING_CENTS=695
-SITE_URL=https://your-production-domain.example
+IZHE_SHIPPING_CENTS=699
+SITE_URL=https://izhearmy.netlify.app
 ```
 
-Use Stripe test keys until the complete purchase and refund process has been tested.
+Optional:
 
-## 3. Configure Stripe webhook
+```text
+STRIPE_STANDARD_SHIPPING_RATE_ID=shr_...
+```
 
-In Stripe Workbench / Developers, add this endpoint:
+When `STRIPE_STANDARD_SHIPPING_RATE_ID` is omitted, the Checkout function creates the approved $6.99 Standard U.S. Shipping rate inline for each Checkout Session.
+
+## Stripe catalog lookup keys
+
+Each design has one Adult and one Kids Price:
+
+```text
+izhe_c1_yhwh_adult_usd
+izhe_c1_yhwh_kids_usd
+izhe_c1_iam_adult_usd
+izhe_c1_iam_kids_usd
+...
+izhe_c1_lord_of_lords_adult_usd
+izhe_c1_lord_of_lords_kids_usd
+```
+
+The physical book uses:
+
+```text
+izhe_c1_book_physical_usd
+```
+
+The server catalog in `netlify/functions/_shared/catalog.mjs` is the approved mapping between website product IDs, Stripe lookup keys, pricing, fit rules, sizes, and Give One eligibility.
+
+## Stripe Tax setup
+
+Checkout uses:
+
+```js
+automatic_tax: { enabled: true }
+```
+
+All shirt products and the physical book are classified in Stripe as taxable tangible goods with tax-exclusive prices. Stripe calculates the applicable tax from the shipping address.
+
+Before accepting live taxable orders, complete these Stripe Dashboard steps:
+
+1. Open **Tax → Registrations**.
+2. Add the Virginia sales-tax registration using the business's exact Isle of Wight County operating address and the legally effective registration date.
+3. Open **Tax → Settings** and confirm the same exact address as the business origin/head-office address.
+4. Verify that tax calculation appears in a Virginia test Checkout and in an out-of-state Checkout.
+
+The repository intentionally does not hard-code a street address or tax registration date.
+
+## Stripe webhook
+
+Configure this endpoint:
 
 ```text
 https://YOUR-DOMAIN/.netlify/functions/stripe-webhook
@@ -58,20 +107,26 @@ Subscribe to:
 
 - `checkout.session.completed`
 - `checkout.session.async_payment_succeeded`
+- `checkout.session.async_payment_failed`
+- `checkout.session.expired`
 - `charge.refunded`
 - `charge.dispute.created`
 
 Copy the endpoint signing secret into `STRIPE_WEBHOOK_SECRET`.
 
-## 4. Deploy
+## Checkout and fulfillment flow
 
-```bash
-npm run deploy
-```
+1. The browser sends only product ID, fit, size, and quantity.
+2. The server validates the selection against the approved catalog.
+3. The server resolves active Stripe Prices by lookup key and verifies the amounts.
+4. The cart is stored as a short-lived Netlify Blob checkout draft.
+5. Stripe Checkout collects payment, shipping address, phone, shipping, and applicable tax.
+6. The webhook confirms payment and stores the paid order.
+7. One Give One code is generated per eligible paid shirt; the book generates none.
+8. The recipient chooses the allowed fit and size and submits a U.S. shipping address.
+9. The operations dashboard shows the redemption for fulfillment.
 
-Or connect this folder to a Git repository and import it into Netlify. The included `netlify.toml` identifies `public` as the publish directory and `netlify/functions` as the functions directory.
-
-## 5. Operations
+## Operations dashboard
 
 Open:
 
@@ -79,45 +134,31 @@ Open:
 https://YOUR-DOMAIN/admin.html
 ```
 
-Enter the value of `IZHE_ADMIN_TOKEN`. The dashboard can:
+The dashboard can:
 
 - View Stripe-paid orders
 - View active and redeemed Give One codes
-- View pending fulfillment records and recipient addresses
-- Generate codes for manual/offline orders
+- View recipient fit, size, and shipping information
+- Generate Give One codes for manual or church shirt orders
 - Export redemptions to CSV
-- Mark redemptions fulfilled and save a tracking number or fulfillment note
+- Mark redemptions fulfilled and save tracking information
 
-Netlify Forms submissions are available in the Netlify dashboard. Configure email notifications there for `church-interest` and `contact`.
+## Deploy
 
-## 6. Fulfillment workflow
+Connect this repository to Netlify or run:
 
-1. A customer pays through Stripe Checkout.
-2. The webhook stores the order and creates one Give One code per purchased shirt.
-3. The confirmation page shows printable QR cards and claim links.
-4. A recipient submits a code, size, and U.S. shipping address.
-5. The code is atomically marked redeemed to prevent reuse.
-6. The redemption appears in `admin.html` as `pending_fulfillment`.
-7. Export the CSV or use the dashboard data to place the fulfillment order.
+```bash
+npm run deploy
+```
 
-## Business settings to review before launch
+The included `netlify.toml` identifies `public` as the publish directory and `netlify/functions` as the functions directory.
 
-- Product price: currently $35.00 per shirt
-- Standard shipping: currently $6.95, controlled by `IZHE_SHIPPING_CENTS`
-- Shipping territory: currently United States only
-- Sizes: S, M, L, XL, XXL
-- Give One ratio: one claim code per purchased shirt
-- Returns, refunds, exchanges, replacement claims, taxes, and chargeback handling
-- The final product photography and production garment specifications
-- Counsel review of privacy policy and terms
+## Security and integrity
 
-## Refunds and disputes
-
-The Stripe webhook cancels unused Give One codes when a charge is refunded or disputed. If a code was already redeemed, the order is marked `refund_requires_review` in the stored order record so the team can resolve the fulfillment and financial exception.
-
-## Security notes
-
-- Stripe secret keys and the admin token remain server-side.
-- Prices and product availability are validated in the checkout function, not trusted from the browser.
-- Give One redemption uses an ETag conditional write so the same code cannot be redeemed simultaneously twice.
-- The operations dashboard requires a bearer token; replace this with full identity-based administrator authentication as the team grows.
+- Stripe secret keys and the administrator token remain server-side.
+- Prices are loaded from Stripe lookup keys and checked against the approved catalog.
+- Checkout carts are stored server-side instead of being packed into Stripe metadata.
+- Give One issuance happens only after confirmed payment.
+- Book purchases never generate Give One codes.
+- Redemption uses ETag conditional writes to prevent simultaneous reuse.
+- Refunds and disputes cancel unused Give One codes.
