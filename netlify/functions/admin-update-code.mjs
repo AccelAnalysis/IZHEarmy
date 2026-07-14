@@ -48,7 +48,7 @@ export default async (request) => {
       updated = { ...updated, status: 'cancelled', cancelledAt: now, cancellationReason: cleanText(payload.reason, 240) || 'Cancelled by administrator' };
     } else if (action === 'reactivate') {
       if (['redeemed', 'reissued'].includes(entry.data.status)) return json({ error: 'This code cannot be reactivated.' }, 409);
-      updated = { ...updated, status: 'active', cancelledAt: null, cancellationReason: null };
+      updated = { ...updated, status: 'active', expiresAt: null, cancelledAt: null, cancellationReason: null };
     } else if (action === 'extend') {
       if (entry.data.status !== 'active') return json({ error: 'Only active codes can be extended.' }, 409);
       const expiresAt = payload.expiresAt ? new Date(payload.expiresAt) : null;
@@ -79,6 +79,7 @@ export default async (request) => {
         updatedAt: now,
         redeemedAt: null,
         redemptionId: null,
+        expiresAt: null,
         cancelledAt: null,
         cancellationReason: null,
         replacementFor: code,

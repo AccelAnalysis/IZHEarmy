@@ -35,7 +35,7 @@ function cleanItems(items) {
   }).filter(Boolean);
 }
 
-function sourceStatus(batchStatus, sourceType) {
+function sourceStatus(batchStatus) {
   if (batchStatus === 'ready' || batchStatus === 'submitted') return 'allocated';
   if (batchStatus === 'in_production') return 'in_production';
   if (batchStatus === 'received' || batchStatus === 'completed') return 'ready_to_ship';
@@ -47,7 +47,8 @@ async function syncRedemption(item, batch, remove = false) {
   const entry = await store.getWithMetadata(item.sourceId, { type: 'json', consistency: 'strong' });
   if (!entry) return;
   if (remove && entry.data.batchId !== batch.id) return;
-  const status = remove ? (entry.data.status === 'allocated' ? 'approved' : entry.data.status) : sourceStatus(batch.status, 'redemption') || entry.data.status;
+  const resetStatuses = new Set(['allocated', 'in_production', 'ready_to_ship']);
+  const status = remove ? (resetStatuses.has(entry.data.status) ? 'approved' : entry.data.status) : sourceStatus(batch.status) || entry.data.status;
   const updated = {
     ...entry.data,
     batchId: remove ? '' : batch.id,
@@ -66,8 +67,23 @@ async function syncOrder(item, batch, remove = false) {
   if (!entry) return;
   const assignments = Array.isArray(entry.data.batchAssignments) ? [...entry.data.batchAssignments] : [];
   const remaining = assignments.filter((assignment) => assignment.sourceItemId !== item.sourceItemId);
-  if (!remove) remaining.push({ batchId: batch.id, sourceItemId: item.sourceItemId, itemIndex: item.itemIndex, quantity: item.quantity });
-  const status = remove ? (entry.data.status === 'allocated' ? 'processing' : entry.data.status) : sourceStatus(batch.status, 'order') || entry.data.status;
+  if (!remove) remaining.push({ batchId: batch.id, batchStatus: batch.status, sourceItemId: item.sourceItemId, itemIndex: item.itemIndex, quantity: item.quantity });
+  const totalItems = Math.max(1, (entry.data.items || []).length);
+  const assignedIndexes = new Set(remaining.map((assignment) => assignment.itemIndex).filter((value) => value != null));
+  const allAssigned = assignedIndexes.size >= totalItems;
+  const statuses = remaining.map((assignment) => assignment.batchStatus || 'ready');
+  let status = entry.data.status;
+  if (remaining.length === 0) {
+    if (['allocated', 'in_production', 'ready_to_ship'].includes(status)) status = 'processing';
+  } else if (allAssigned && statuses.every((value) => ['received', 'completed'].includes(value))) {
+    status = 'ready_to_ship';
+  } else if (statuses.some((value) => value === 'in_production') || statuses.some((value) => ['received', 'completed'].includes(value))) {
+    status = 'in_production';
+  } else if (allAssigned && statuses.every((value) => ['ready', 'submitted'].includes(value))) {
+    status = 'allocated';
+  } else {
+    status = 'processing';
+  }
   const updated = {
     ...entry.data,
     batchAssignments: remaining,
