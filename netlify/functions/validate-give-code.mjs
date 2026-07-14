@@ -1,6 +1,7 @@
 import { getStore } from '@netlify/blobs';
 import { loadCatalog } from './_shared/catalog-service.mjs';
 import { normalizeCode } from './_shared/codes.mjs';
+import { effectiveCodeStatus } from './_shared/operations-rules.mjs';
 import { json, methodNotAllowed } from './_shared/http.mjs';
 
 function redemptionProduct(record, catalog) {
@@ -8,11 +9,7 @@ function redemptionProduct(record, catalog) {
   const snapshot = record.productSnapshot || {};
   const variants = (current?.variants?.length ? current.variants : snapshot.variants || [])
     .filter((variant) => variant.status !== 'disabled' && !['retired', 'sold_out'].includes(variant.availabilityStatus));
-  return {
-    id: current?.id || snapshot.id || record.productId,
-    name: current?.name || snapshot.name || record.productName,
-    variants
-  };
+  return { id: current?.id || snapshot.id || record.productId, name: current?.name || snapshot.name || record.productName, variants };
 }
 
 export default async (request) => {
@@ -22,18 +19,19 @@ export default async (request) => {
   const store = getStore('izhe-give-codes');
   const record = await store.get(code, { type: 'json', consistency: 'strong' });
   if (!record) return json({ error: 'This claim code was not found.' }, 404);
-  if (record.status !== 'active') return json({ error: 'This claim code has already been redeemed or cancelled.' }, 409);
+  const status = effectiveCodeStatus(record);
+  if (status === 'expired') return json({ error: 'This claim code has expired. Contact IZHE support.' }, 409);
+  if (status !== 'active') return json({ error: 'This claim code has already been redeemed, cancelled, or replaced.' }, 409);
   const { catalog } = await loadCatalog();
   const product = redemptionProduct(record, catalog);
   if (!product.variants.length) return json({ error: 'The item linked to this code currently has no redeemable variants. Contact IZHE support.' }, 409);
-  const fits = [...new Set(product.variants.map((variant) => variant.fit).filter(Boolean))];
-  const sizes = [...new Set(product.variants.map((variant) => variant.size).filter(Boolean))];
   return json({
     valid: true,
     productId: product.id,
     productName: product.name,
-    fits,
-    sizes,
+    expiresAt: record.expiresAt || '',
+    fits: [...new Set(product.variants.map((variant) => variant.fit).filter(Boolean))],
+    sizes: [...new Set(product.variants.map((variant) => variant.size).filter(Boolean))],
     variants: product.variants.map(({ id, fit, size, color }) => ({ id, fit, size, color }))
   });
 };
