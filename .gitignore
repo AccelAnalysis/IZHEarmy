@@ -1,0 +1,8 @@
+# Environment files containing real credentials
+.env
+.env.*
+!.env.example
+
+# Local dependencies and Netlify development data
+node_modules/
+.netlify/
