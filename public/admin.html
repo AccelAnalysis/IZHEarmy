@@ -3,18 +3,110 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>IZHE Operations</title>
+  <title>IZHE Operations & Catalog</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    [data-tab-panel][hidden]{display:none!important}.field{width:100%;border:1px solid rgb(51 65 85);background:rgb(2 6 23);border-radius:.75rem;padding:.75rem 1rem;color:white}.field:focus{outline:none;border-color:rgb(251 191 36)}.label{display:block;font-size:.72rem;line-height:1rem;font-weight:800;letter-spacing:.08em;color:rgb(148 163 184);margin-bottom:.4rem}.card{background:rgb(15 23 42);border:1px solid rgba(255,255,255,.08);border-radius:1rem}.tab-active{background:rgb(251 191 36)!important;color:rgb(2 6 23)!important}.status-dot{width:.55rem;height:.55rem;border-radius:999px;display:inline-block;margin-right:.4rem}.modal-open{overflow:hidden}
+  </style>
 </head>
 <body class="bg-slate-950 text-white min-h-screen">
-  <header class="border-b border-white/10"><div class="max-w-7xl mx-auto px-6 py-5 flex justify-between"><span class="font-extrabold tracking-[.2em]">IZHE OPERATIONS</span><a href="/" class="text-amber-400 font-bold">SITE</a></div></header>
-  <main class="max-w-7xl mx-auto px-6 py-10">
-    <section id="login" class="max-w-lg mx-auto bg-slate-900 border border-white/10 rounded-3xl p-7"><h1 class="text-3xl font-bold mb-3">Administrator access</h1><p class="text-slate-400 mb-6">Enter the token configured as <code>IZHE_ADMIN_TOKEN</code>.</p><form id="tokenForm" class="space-y-4"><input id="token" type="password" required class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3" placeholder="Administrator token"><button class="w-full bg-amber-400 text-slate-950 font-extrabold py-3 rounded-xl">OPEN OPERATIONS</button><p id="loginStatus" class="text-sm text-red-400"></p></form></section>
+  <header class="border-b border-white/10 sticky top-0 z-40 bg-slate-950/95 backdrop-blur">
+    <div class="max-w-[1500px] mx-auto px-5 lg:px-8 py-4 flex flex-wrap items-center justify-between gap-4">
+      <div><span class="font-extrabold tracking-[.2em]">IZHE OPERATIONS</span><p class="text-xs text-slate-500 mt-1">Catalog, publishing, orders, Give One, and fulfillment</p></div>
+      <div class="flex gap-3"><button id="previewCatalog" class="hidden border border-amber-400 text-amber-400 px-4 py-2 rounded-xl font-bold">PREVIEW CATALOG</button><a href="/" class="text-amber-400 font-bold px-4 py-2">VIEW SITE</a></div>
+    </div>
+  </header>
+
+  <main class="max-w-[1500px] mx-auto px-5 lg:px-8 py-8">
+    <section id="login" class="max-w-lg mx-auto card p-7 mt-10">
+      <h1 class="text-3xl font-bold mb-3">Administrator access</h1>
+      <p class="text-slate-400 mb-6">Enter the token configured as <code>IZHE_ADMIN_TOKEN</code>.</p>
+      <form id="tokenForm" class="space-y-4">
+        <input id="token" type="password" required class="field" placeholder="Administrator token" autocomplete="current-password">
+        <button class="w-full bg-amber-400 text-slate-950 font-extrabold py-3 rounded-xl">OPEN OPERATIONS</button>
+        <p id="loginStatus" class="text-sm text-red-400"></p>
+      </form>
+    </section>
+
     <section id="dashboard" class="hidden">
-      <div class="flex flex-col md:flex-row justify-between gap-4 mb-8"><div><h1 class="text-4xl font-bold">Operations dashboard</h1><p id="updated" class="text-slate-400 mt-2"></p></div><div class="flex gap-3"><button id="refresh" class="border border-white/15 px-5 py-3 rounded-xl font-bold">REFRESH</button><button id="export" class="bg-amber-400 text-slate-950 px-5 py-3 rounded-xl font-bold">EXPORT REDEMPTIONS</button></div></div>
-      <form id="createCodes" class="bg-slate-900 border border-white/10 rounded-2xl p-5 grid md:grid-cols-4 gap-4 mb-8"><select id="productId" class="bg-slate-950 border border-slate-700 rounded-xl px-4 py-3" aria-label="Give One shirt"></select><input id="orderRef" class="bg-slate-950 border border-slate-700 rounded-xl px-4 py-3" placeholder="Manual order reference"><input id="count" type="number" min="1" max="50" value="1" class="bg-slate-950 border border-slate-700 rounded-xl px-4 py-3"><button class="bg-white text-slate-950 rounded-xl font-bold">CREATE GIVE CODES</button></form>
-      <div class="grid md:grid-cols-3 gap-5 mb-8"><div class="bg-slate-900 rounded-2xl p-6"><p class="text-slate-400">Orders</p><strong id="orderCount" class="text-4xl">0</strong></div><div class="bg-slate-900 rounded-2xl p-6"><p class="text-slate-400">Active codes</p><strong id="activeCount" class="text-4xl">0</strong></div><div class="bg-slate-900 rounded-2xl p-6"><p class="text-slate-400">Pending fulfillment</p><strong id="redemptionCount" class="text-4xl">0</strong></div></div>
-      <div class="bg-slate-900 border border-white/10 rounded-2xl overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-left border-b border-white/10"><th class="p-4">Confirmation</th><th class="p-4">Recipient</th><th class="p-4">Product / Fit / Size</th><th class="p-4">Address</th><th class="p-4">Status</th><th class="p-4">Created</th><th class="p-4">Action</th></tr></thead><tbody id="redemptions"></tbody></table></div>
+      <div class="flex flex-col xl:flex-row justify-between gap-5 mb-7">
+        <div><h1 class="text-4xl font-bold">Operations dashboard</h1><p id="updated" class="text-slate-400 mt-2"></p></div>
+        <div class="flex flex-wrap gap-3"><button id="refresh" class="border border-white/15 px-5 py-3 rounded-xl font-bold">REFRESH</button><button id="export" class="bg-white text-slate-950 px-5 py-3 rounded-xl font-bold">EXPORT REDEMPTIONS</button></div>
+      </div>
+
+      <nav class="flex gap-2 overflow-x-auto pb-3 mb-6" aria-label="Admin sections">
+        <button data-tab="overview" class="tab-active whitespace-nowrap bg-slate-900 px-5 py-3 rounded-xl font-bold">OVERVIEW</button>
+        <button data-tab="collections" class="whitespace-nowrap bg-slate-900 px-5 py-3 rounded-xl font-bold">COLLECTIONS</button>
+        <button data-tab="products" class="whitespace-nowrap bg-slate-900 px-5 py-3 rounded-xl font-bold">PRODUCTS</button>
+        <button data-tab="media" class="whitespace-nowrap bg-slate-900 px-5 py-3 rounded-xl font-bold">MEDIA</button>
+        <button data-tab="operations" class="whitespace-nowrap bg-slate-900 px-5 py-3 rounded-xl font-bold">ORDERS & GIVE ONE</button>
+      </nav>
+
+      <section data-tab-panel="overview">
+        <div class="grid sm:grid-cols-2 xl:grid-cols-5 gap-4 mb-7">
+          <div class="card p-5"><p class="text-slate-400">Collections</p><strong id="collectionCount" class="text-4xl">0</strong></div>
+          <div class="card p-5"><p class="text-slate-400">Products</p><strong id="productCount" class="text-4xl">0</strong></div>
+          <div class="card p-5"><p class="text-slate-400">Published</p><strong id="publishedCount" class="text-4xl">0</strong></div>
+          <div class="card p-5"><p class="text-slate-400">Unavailable</p><strong id="unavailableCount" class="text-4xl">0</strong></div>
+          <div class="card p-5"><p class="text-slate-400">Catalog revision</p><strong id="catalogRevision" class="text-4xl">0</strong></div>
+        </div>
+        <div class="grid lg:grid-cols-3 gap-5">
+          <div class="card p-6 lg:col-span-2"><h2 class="text-xl font-bold mb-4">Catalog attention</h2><div id="catalogAlerts" class="space-y-3 text-sm"></div></div>
+          <div class="card p-6"><h2 class="text-xl font-bold mb-4">Operations snapshot</h2><dl class="space-y-4"><div class="flex justify-between"><dt class="text-slate-400">Paid orders</dt><dd id="overviewOrders" class="font-bold">0</dd></div><div class="flex justify-between"><dt class="text-slate-400">Active codes</dt><dd id="overviewCodes" class="font-bold">0</dd></div><div class="flex justify-between"><dt class="text-slate-400">Pending gifts</dt><dd id="overviewPending" class="font-bold">0</dd></div><div class="flex justify-between"><dt class="text-slate-400">Media assets</dt><dd id="overviewMedia" class="font-bold">0</dd></div></dl></div>
+        </div>
+      </section>
+
+      <section data-tab-panel="collections" hidden>
+        <div class="grid xl:grid-cols-[380px_1fr] gap-6">
+          <div class="card overflow-hidden"><div class="p-5 border-b border-white/10 flex justify-between items-center"><div><h2 class="text-xl font-bold">Collections</h2><p class="text-xs text-slate-400 mt-1">Draft, schedule, publish, pause, or archive.</p></div><button id="newCollection" class="bg-amber-400 text-slate-950 px-3 py-2 rounded-lg font-bold">NEW</button></div><div id="collectionList" class="divide-y divide-white/5 max-h-[720px] overflow-y-auto"></div></div>
+          <form id="collectionForm" class="card p-6 space-y-5">
+            <div class="flex flex-wrap justify-between gap-4"><div><h2 id="collectionFormTitle" class="text-2xl font-bold">New collection</h2><p class="text-slate-400 text-sm mt-1">Collection records control storefront grouping and publishing.</p></div><button class="bg-amber-400 text-slate-950 px-6 py-3 rounded-xl font-extrabold">SAVE COLLECTION</button></div>
+            <input id="collectionOriginalId" type="hidden">
+            <div class="grid md:grid-cols-2 gap-4"><label><span class="label">COLLECTION ID</span><input id="collectionId" class="field" required placeholder="collection_2"></label><label><span class="label">URL SLUG</span><input id="collectionSlug" class="field" required placeholder="collection-2"></label></div>
+            <div class="grid md:grid-cols-2 gap-4"><label><span class="label">SHORT TITLE</span><input id="collectionShortTitle" class="field" required placeholder="Collection 2"></label><label><span class="label">DISPLAY ORDER</span><input id="collectionDisplayOrder" type="number" class="field" value="100"></label></div>
+            <label><span class="label">COLLECTION TITLE</span><input id="collectionTitle" class="field" required placeholder="The God Who Provides."></label>
+            <label><span class="label">SUBTITLE / TEACHING THEME</span><input id="collectionSubtitle" class="field" placeholder="Discovering God Through His Names"></label>
+            <label><span class="label">STOREFRONT DESCRIPTION</span><textarea id="collectionDescription" class="field" rows="4"></textarea></label>
+            <div class="grid md:grid-cols-2 gap-4"><label><span class="label">BOOK TITLE</span><input id="collectionBookTitle" class="field"></label><label><span class="label">BOOK SUBTITLE</span><input id="collectionBookSubtitle" class="field"></label></div>
+            <label><span class="label">COLLECTION HERO IMAGE URL</span><input id="collectionHeroImage" class="field" type="url"></label>
+            <div class="grid md:grid-cols-2 xl:grid-cols-4 gap-4"><label><span class="label">PUBLISHING STATUS</span><select id="collectionStatus" class="field"><option value="draft">Draft</option><option value="published">Published</option><option value="hidden">Hidden</option><option value="archived">Archived</option></select></label><label><span class="label">AVAILABILITY</span><select id="collectionAvailability" class="field"><option value="available">Available</option><option value="preorder">Preorder</option><option value="paused">Paused</option><option value="sold_out">Sold out</option><option value="retired">Retired</option></select></label><label><span class="label">AVAILABLE FROM</span><input id="collectionAvailableFrom" type="datetime-local" class="field"></label><label><span class="label">AVAILABLE UNTIL</span><input id="collectionAvailableUntil" type="datetime-local" class="field"></label></div>
+            <p id="collectionStatusMessage" class="text-sm"></p>
+          </form>
+        </div>
+      </section>
+
+      <section data-tab-panel="products" hidden>
+        <div class="grid xl:grid-cols-[430px_1fr] gap-6">
+          <div class="card overflow-hidden"><div class="p-5 border-b border-white/10"><div class="flex justify-between items-center gap-3 mb-4"><div><h2 class="text-xl font-bold">Products</h2><p class="text-xs text-slate-400 mt-1">All products across every collection.</p></div><button id="newProduct" class="bg-amber-400 text-slate-950 px-3 py-2 rounded-lg font-bold">NEW</button></div><div class="grid grid-cols-2 gap-3"><input id="productSearch" class="field" placeholder="Search products"><select id="productCollectionFilter" class="field"><option value="">All collections</option></select></div></div><div id="productList" class="divide-y divide-white/5 max-h-[780px] overflow-y-auto"></div></div>
+          <form id="productForm" class="card p-6 space-y-6">
+            <div class="flex flex-wrap justify-between gap-4"><div><h2 id="productFormTitle" class="text-2xl font-bold">New product</h2><p class="text-slate-400 text-sm mt-1">The same record powers the storefront, availability checks, and secure checkout validation.</p></div><div class="flex gap-3"><button id="productPreviewButton" type="button" class="border border-amber-400 text-amber-400 px-5 py-3 rounded-xl font-bold">PREVIEW</button><button class="bg-amber-400 text-slate-950 px-6 py-3 rounded-xl font-extrabold">SAVE PRODUCT</button></div></div>
+            <input id="productOriginalId" type="hidden">
+            <div class="grid md:grid-cols-3 gap-4"><label><span class="label">PRODUCT ID</span><input id="productId" class="field" required></label><label><span class="label">COLLECTION</span><select id="productCollection" class="field" required></select></label><label><span class="label">PRODUCT TYPE</span><select id="productType" class="field"><option value="apparel">Apparel</option><option value="book">Book</option><option value="bundle">Bundle</option><option value="other">Other</option></select></label></div>
+            <div class="grid md:grid-cols-2 gap-4"><label><span class="label">PRODUCT NAME</span><input id="productName" class="field" required></label><label><span class="label">SHORT DISPLAY NAME</span><input id="productShortName" class="field" required></label></div>
+            <label><span class="label">DESCRIPTION</span><textarea id="productDescription" class="field" rows="4"></textarea></label>
+            <div class="grid md:grid-cols-2 xl:grid-cols-4 gap-4"><label><span class="label">SKU</span><input id="productSku" class="field" required></label><label><span class="label">STRIPE LOOKUP KEY</span><input id="productLookupKey" class="field" required></label><label><span class="label">PRICE IN CENTS</span><input id="productUnitAmount" type="number" min="0" class="field" required></label><label><span class="label">DISPLAY ORDER</span><input id="productDisplayOrder" type="number" class="field" value="100"></label></div>
+            <div class="grid md:grid-cols-2 xl:grid-cols-4 gap-4"><label><span class="label">DISPLAY GROUP</span><input id="productDisplayGroup" class="field" placeholder="c2-provider"></label><label><span class="label">AUDIENCE KEY</span><input id="productAudience" class="field" placeholder="adult"></label><label><span class="label">AUDIENCE LABEL</span><input id="productAudienceLabel" class="field" placeholder="Adult"></label><label><span class="label">CHAPTER</span><input id="productChapter" type="number" min="1" class="field"></label></div>
+            <div class="grid md:grid-cols-2 gap-4"><label><span class="label">DIVINE NAME / CARD HEADING</span><input id="productDivineName" class="field"></label><label><span class="label">IZHE MESSAGE</span><input id="productMessage" class="field"></label></div>
+            <div class="grid md:grid-cols-2 xl:grid-cols-4 gap-4"><label><span class="label">PUBLISHING STATUS</span><select id="productStatus" class="field"><option value="draft">Draft</option><option value="published">Published</option><option value="hidden">Hidden</option><option value="archived">Archived</option></select></label><label><span class="label">AVAILABILITY</span><select id="productAvailability" class="field"><option value="available">Available</option><option value="preorder">Preorder</option><option value="paused">Paused</option><option value="sold_out">Sold out</option><option value="retired">Retired</option></select></label><label><span class="label">AVAILABLE FROM</span><input id="productAvailableFrom" type="datetime-local" class="field"></label><label><span class="label">AVAILABLE UNTIL</span><input id="productAvailableUntil" type="datetime-local" class="field"></label></div>
+            <div class="flex flex-wrap gap-6"><label class="flex items-center gap-2"><input id="productFeatured" type="checkbox" class="w-5 h-5 accent-amber-400"><span>Feature this product</span></label><label class="flex items-center gap-2"><input id="productGiveEligible" type="checkbox" class="w-5 h-5 accent-amber-400"><span>Give One eligible</span></label><label><span class="label">GIFT UNITS PER PAID UNIT</span><input id="productGiftUnits" type="number" min="0" max="10" class="field w-28" value="1"></label></div>
+
+            <div class="border-t border-white/10 pt-6"><div class="flex flex-wrap justify-between gap-4 mb-4"><div><h3 class="text-xl font-bold">Product images</h3><p class="text-sm text-slate-400">Assign uploaded media or add an approved image URL.</p></div><button id="addImageUrl" type="button" class="border border-white/15 px-4 py-2 rounded-xl font-bold">ADD IMAGE URL</button></div><div id="productImages" class="space-y-3"></div></div>
+
+            <div id="variantSection" class="border-t border-white/10 pt-6"><div class="flex flex-wrap justify-between gap-4 mb-4"><div><h3 class="text-xl font-bold">Product variants</h3><p class="text-sm text-slate-400">Availability can be controlled independently for every fit and size.</p></div><button id="syncVariants" type="button" class="border border-amber-400 text-amber-400 px-4 py-2 rounded-xl font-bold">SYNC VARIANTS</button></div><div class="grid md:grid-cols-3 gap-4 mb-4"><label><span class="label">FITS, COMMA SEPARATED</span><input id="variantFits" class="field" placeholder="Men, Women"></label><label><span class="label">SIZES, COMMA SEPARATED</span><input id="variantSizes" class="field" placeholder="S, M, L, XL"></label><label><span class="label">DEFAULT COLOR</span><input id="variantColor" class="field" value="Standard"></label></div><div class="overflow-x-auto border border-white/10 rounded-xl"><table class="w-full text-sm min-w-[800px]"><thead><tr class="text-left bg-slate-950"><th class="p-3">Fit</th><th class="p-3">Size</th><th class="p-3">Color</th><th class="p-3">Variant SKU</th><th class="p-3">Availability</th><th class="p-3">Enabled</th></tr></thead><tbody id="variantRows"></tbody></table></div></div>
+            <p id="productStatusMessage" class="text-sm"></p>
+          </form>
+        </div>
+      </section>
+
+      <section data-tab-panel="media" hidden>
+        <div class="grid lg:grid-cols-[420px_1fr] gap-6"><form id="mediaUploadForm" class="card p-6 space-y-5 h-fit"><div><h2 class="text-2xl font-bold">Upload product image</h2><p class="text-sm text-slate-400 mt-2">JPG, PNG, or WebP, up to 5 MB. Uploaded images remain available across deployments.</p></div><label><span class="label">IMAGE FILE</span><input id="mediaFile" name="file" type="file" accept="image/jpeg,image/png,image/webp" required class="field"></label><label><span class="label">ACCESSIBLE ALT TEXT</span><input id="mediaAlt" name="alt" class="field" required></label><button class="w-full bg-amber-400 text-slate-950 font-extrabold py-3 rounded-xl">UPLOAD IMAGE</button><p id="mediaStatus" class="text-sm"></p></form><div class="card p-6"><div class="flex justify-between items-end gap-4 mb-5"><div><h2 class="text-2xl font-bold">Media library</h2><p class="text-sm text-slate-400 mt-1">Select an image to assign it to the product currently open in the editor.</p></div><span id="mediaCount" class="text-slate-400"></span></div><div id="mediaGrid" class="grid sm:grid-cols-2 xl:grid-cols-3 gap-4"></div></div></div>
+      </section>
+
+      <section data-tab-panel="operations" hidden>
+        <form id="createCodes" class="card p-5 grid md:grid-cols-4 gap-4 mb-8"><select id="giveProductId" class="field" aria-label="Give One product"></select><input id="orderRef" class="field" placeholder="Manual order reference"><input id="count" type="number" min="1" max="50" value="1" class="field"><button class="bg-white text-slate-950 rounded-xl font-bold">CREATE GIVE CODES</button></form>
+        <div class="grid md:grid-cols-3 gap-5 mb-8"><div class="card p-6"><p class="text-slate-400">Orders</p><strong id="orderCount" class="text-4xl">0</strong></div><div class="card p-6"><p class="text-slate-400">Active codes</p><strong id="activeCount" class="text-4xl">0</strong></div><div class="card p-6"><p class="text-slate-400">Pending fulfillment</p><strong id="redemptionCount" class="text-4xl">0</strong></div></div>
+        <div class="card overflow-x-auto"><table class="w-full text-sm min-w-[1100px]"><thead><tr class="text-left border-b border-white/10"><th class="p-4">Confirmation</th><th class="p-4">Recipient</th><th class="p-4">Product / Variant</th><th class="p-4">Address</th><th class="p-4">Status</th><th class="p-4">Created</th><th class="p-4">Action</th></tr></thead><tbody id="redemptions"></tbody></table></div>
+      </section>
     </section>
   </main>
   <script src="/assets/admin.js" defer></script>

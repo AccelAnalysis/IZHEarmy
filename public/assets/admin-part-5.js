@@ -1,0 +1,1 @@
+'use strict';$$('[data-tab]').forEach((button)=>button.addEventListener('click',()=>showTab(button.dataset.tab)));$('#tokenForm').addEventListener('submit',(event)=>{event.preventDefault();token=$('#token').value.trim();localStorage.setItem('izhe-admin-token',token);loadAll();});if(token){$('#token').value=token;loadAll();}

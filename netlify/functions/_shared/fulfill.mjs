@@ -1,5 +1,5 @@
 import { getStore } from '@netlify/blobs';
-import { CATALOG } from './catalog.mjs';
+import { loadCatalog } from './catalog-service.mjs';
 import { createGiveCode } from './codes.mjs';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -13,23 +13,48 @@ async function waitForOrder(orders, sessionId) {
   return null;
 }
 
-async function loadCheckoutCart(session) {
+async function resolveDraft(session) {
   const draftId = session.metadata?.draftId || '';
   if (draftId) {
-    const drafts = getStore('izhe-checkout-drafts');
-    const draft = await drafts.get(draftId, { type: 'json', consistency: 'strong' });
-    if (!draft?.cart) throw new Error('The checkout cart record could not be found.');
-    return { cart: draft.cart, draftId, drafts };
+    const draft = await getStore('izhe-checkout-drafts').get(draftId, { type: 'json', consistency: 'strong' });
+    if (draft?.items?.length) return { draftId, ...draft };
   }
 
-  const cart = JSON.parse(session.metadata?.cart || '[]');
-  return { cart, draftId: '', drafts: null };
+  const legacyCart = JSON.parse(session.metadata?.cart || '[]');
+  if (!legacyCart.length) return { draftId, cart: [], items: [] };
+  const { catalog } = await loadCatalog();
+  const products = new Map(catalog.products.map((product) => [product.id, product]));
+  const items = legacyCart.map((item) => {
+    const product = products.get(item.productId);
+    if (!product) return null;
+    const variant = product.variants?.find((candidate) => candidate.id === item.variantId || (candidate.fit === item.fit && candidate.size === item.size));
+    return {
+      productId: product.id,
+      productName: product.name,
+      shortName: product.shortName,
+      productType: product.productType,
+      collectionId: product.collectionId,
+      sku: product.sku,
+      unitAmount: product.unitAmount,
+      currency: product.currency,
+      giveOneEligible: product.giveOneEligible,
+      giveOneUnitsPerPaidUnit: product.giveOneUnitsPerPaidUnit,
+      variantId: variant?.id || '',
+      fit: variant?.fit || item.fit || '',
+      size: variant?.size || item.size || '',
+      color: variant?.color || '',
+      variantSku: variant?.sku || '',
+      eligibleGiftVariants: (product.variants || []).map(({ id, fit, size, color, sku }) => ({ id, fit, size, color, sku })),
+      quantity: item.quantity
+    };
+  }).filter(Boolean);
+  return { draftId, cart: legacyCart, items };
 }
 
 export async function fulfillPaidSession(stripe, session) {
   const orders = getStore('izhe-orders');
   const existing = await orders.get(session.id, { type: 'json', consistency: 'strong' });
-  if (existing?.status !== 'processing') return existing;
+  if (existing && existing.status !== 'processing') return existing;
 
   const lockKey = `lock-${session.id}`;
   const lock = await orders.setJSON(lockKey, { createdAt: Date.now() }, { onlyIfNew: true });
@@ -41,28 +66,20 @@ export async function fulfillPaidSession(stripe, session) {
 
   const generatedCodes = [];
   const codes = getStore('izhe-give-codes');
-  let draftId = '';
-  let drafts = null;
   try {
-    const checkout = await loadCheckoutCart(session);
-    const cart = checkout.cart;
-    draftId = checkout.draftId;
-    drafts = checkout.drafts;
-
+    const draft = await resolveDraft(session);
     await orders.setJSON(session.id, {
       status: 'processing',
       sessionId: session.id,
-      draftId,
-      cart,
+      cart: draft.cart,
+      items: draft.items,
       createdAt: new Date().toISOString()
     });
 
-    for (const item of cart) {
-      const product = CATALOG[item.productId];
-      if (!product?.giveOneEligible) continue;
-      const giveOneCount = item.quantity * (product.giveOneUnitsPerPaidUnit || 1);
-
-      for (let index = 0; index < giveOneCount; index += 1) {
+    for (const item of draft.items) {
+      if (!item.giveOneEligible) continue;
+      const codeCount = item.quantity * Math.max(1, Number(item.giveOneUnitsPerPaidUnit || 1));
+      for (let index = 0; index < codeCount; index += 1) {
         let code;
         let saved = false;
         for (let attempt = 0; attempt < 8 && !saved; attempt += 1) {
@@ -70,8 +87,16 @@ export async function fulfillPaidSession(stripe, session) {
           const value = {
             code,
             status: 'active',
-            productId: product.id,
-            productName: product.name,
+            productId: item.productId,
+            productName: item.productName,
+            productSnapshot: {
+              id: item.productId,
+              name: item.productName,
+              shortName: item.shortName,
+              collectionId: item.collectionId,
+              productType: item.productType,
+              variants: item.eligibleGiftVariants || []
+            },
             sourceSessionId: session.id,
             purchaserEmail: session.customer_details?.email || session.customer_email || '',
             createdAt: new Date().toISOString(),
@@ -84,43 +109,39 @@ export async function fulfillPaidSession(stripe, session) {
           saved = result.modified;
         }
         if (!saved) throw new Error('Unable to generate a unique Give One code.');
-        generatedCodes.push({ code, productId: product.id, productName: product.name });
+        generatedCodes.push({ code, productId: item.productId, productName: item.productName });
       }
     }
 
     const order = {
       sessionId: session.id,
-      draftId,
       paymentIntentId: typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id || '',
       paymentStatus: session.payment_status,
       status: 'paid',
       customerEmail: session.customer_details?.email || session.customer_email || '',
       customerName: session.customer_details?.name || '',
-      amountSubtotal: session.amount_subtotal || 0,
-      amountShipping: session.shipping_cost?.amount_total || 0,
-      amountTax: session.total_details?.amount_tax || 0,
       amountTotal: session.amount_total || 0,
       currency: session.currency || 'usd',
       shippingDetails: session.shipping_details || session.collected_information?.shipping_details || null,
-      cart,
+      cart: draft.cart,
+      items: draft.items,
+      catalogRevision: draft.catalogRevision || Number(session.metadata?.catalogRevision || 0) || null,
       giveCodes: generatedCodes,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
 
     await orders.setJSON(session.id, order);
+    if (draft.draftId) await getStore('izhe-checkout-drafts').delete(draft.draftId).catch(() => {});
     if (order.paymentIntentId) {
       const index = getStore('izhe-payment-index');
       await index.setJSON(order.paymentIntentId, { sessionId: session.id }, { onlyIfNew: true });
     }
-    if (draftId && drafts) await drafts.delete(draftId).catch(() => {});
     return order;
   } catch (error) {
     for (const generated of generatedCodes) {
       const entry = await codes.get(generated.code, { type: 'json', consistency: 'strong' }).catch(() => null);
-      if (entry?.status === 'active' && entry.sourceSessionId === session.id) {
-        await codes.delete(generated.code).catch(() => {});
-      }
+      if (entry?.status === 'active' && entry.sourceSessionId === session.id) await codes.delete(generated.code).catch(() => {});
     }
     await orders.delete(session.id).catch(() => {});
     throw error;
