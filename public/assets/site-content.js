@@ -23,13 +23,20 @@
     text('#top .max-w-3xl > p:nth-of-type(3)', hero.body);
     const heroLinks = document.querySelectorAll('#top .max-w-3xl > div:last-child a');
     if (heroLinks[0]) { if (hero.primaryLabel) heroLinks[0].textContent = hero.primaryLabel; if (hero.primaryTarget) heroLinks[0].href = hero.primaryTarget; }
-    if (heroLinks[1]) { if (hero.secondaryLabel) heroLinks[1].innerHTML = `${hero.secondaryLabel} <i class="fas fa-arrow-down ml-2 text-xs" aria-hidden="true"></i>`; if (hero.secondaryTarget) heroLinks[1].href = hero.secondaryTarget; }
+    if (heroLinks[1]) { if (hero.secondaryLabel) heroLinks[1].textContent = hero.secondaryLabel; if (hero.secondaryTarget) heroLinks[1].href = hero.secondaryTarget; }
     if (hero.backgroundImage) document.querySelector('#top').style.backgroundImage = `linear-gradient(90deg,rgba(2,6,23,.94) 0%,rgba(2,6,23,.68) 48%,rgba(2,6,23,.18) 100%),url("${hero.backgroundImage.replaceAll('"', '%22')}")`;
 
     const story = record('home-story');
     text('#story .lg\\:grid-cols-2 > div:nth-child(2) span', story.eyebrow);
     const storyHeading = document.querySelector('#story .lg\\:grid-cols-2 > div:nth-child(2) h2');
-    if (storyHeading && (story.heading || story.accent)) storyHeading.innerHTML = `${story.heading || ''}<br><span class="italic text-brand-gold">${story.accent || ''}</span>`;
+    if (storyHeading && (story.heading || story.accent)) {
+      storyHeading.replaceChildren(document.createTextNode(story.heading || ''));
+      storyHeading.append(document.createElement('br'));
+      const accent = document.createElement('span');
+      accent.className = 'italic text-brand-gold';
+      accent.textContent = story.accent || '';
+      storyHeading.append(accent);
+    }
     const storyParagraphs = document.querySelectorAll('#story .space-y-5 p');
     if (storyParagraphs[0] && story.paragraph1) storyParagraphs[0].textContent = story.paragraph1;
     if (storyParagraphs[1] && story.paragraph2) storyParagraphs[1].textContent = story.paragraph2;
@@ -71,7 +78,14 @@
     if (announcement.message) {
       const banner = document.createElement('div');
       banner.className = 'fixed top-0 inset-x-0 z-[90] bg-brand-gold text-brand-darker px-5 py-2.5 text-center text-sm font-bold';
-      banner.innerHTML = `${announcement.message}${announcement.linkUrl && announcement.linkLabel ? ` <a class="underline ml-2" href="${announcement.linkUrl}">${announcement.linkLabel}</a>` : ''}`;
+      banner.append(document.createTextNode(announcement.message));
+      if (announcement.linkUrl && announcement.linkLabel) {
+        const link = document.createElement('a');
+        link.className = 'underline ml-2';
+        link.href = announcement.linkUrl;
+        link.textContent = announcement.linkLabel;
+        banner.append(link);
+      }
       document.body.prepend(banner);
       document.querySelector('#navbar').style.top = `${banner.offsetHeight}px`;
     }
