@@ -1,6 +1,8 @@
 import { getStore } from '@netlify/blobs';
 import { requireAdmin } from './_shared/admin-auth.mjs';
 import { loadCatalog, primaryImage } from './_shared/catalog-service.mjs';
+import { campaignAllowsProduct } from './_shared/campaign-rules.mjs';
+import { findCampaignById } from './_shared/campaign-service.mjs';
 import { createGiveCode } from './_shared/codes.mjs';
 import { json, methodNotAllowed, cleanText } from './_shared/http.mjs';
 
@@ -14,7 +16,11 @@ export default async (request) => {
     const product = catalog.products.find((candidate) => candidate.id === cleanText(payload.productId, 80));
     const count = Number(payload.count || 1);
     const orderRef = cleanText(payload.orderRef, 100) || 'manual';
+    const campaignId = cleanText(payload.campaignId, 100);
+    const campaign = campaignId ? await findCampaignById(campaignId) : null;
+    if (campaignId && !campaign) return json({ error: 'The selected campaign was not found.' }, 404);
     if (!product || !product.giveOneEligible) return json({ error: 'Select a Give One eligible product.' }, 400);
+    if (campaign && !campaignAllowsProduct(campaign, product)) return json({ error: 'This product is not assigned to the selected campaign.' }, 400);
     if (!Number.isInteger(count) || count < 1 || count > 50) return json({ error: 'Count must be between 1 and 50.' }, 400);
     const store = getStore('izhe-give-codes');
     const created = [];
@@ -37,6 +43,18 @@ export default async (request) => {
             image: primaryImage(product)?.url || '',
             variants: eligibleVariants.map(({ id, fit, size, color, sku }) => ({ id, fit, size, color, sku }))
           },
+          campaignId: campaign?.id || '',
+          campaignSlug: campaign?.slug || '',
+          campaign: campaign ? {
+            id: campaign.id,
+            slug: campaign.slug,
+            title: campaign.title,
+            organization: campaign.organization,
+            ministryObjective: campaign.ministryObjective,
+            fulfillmentMethod: campaign.fulfillmentMethod,
+            supportModel: campaign.supportModel,
+            supportRate: campaign.supportRate
+          } : null,
           sourceSessionId: orderRef,
           purchaserEmail: '',
           createdAt: new Date().toISOString(),

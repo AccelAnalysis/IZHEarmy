@@ -24,6 +24,11 @@
     Cache-Control = "public, max-age=300, must-revalidate"
 
 [[redirects]]
+  from = "/campaign/:slug"
+  to = "/campaign.html"
+  status = 200
+
+[[redirects]]
   from = "/api/checkout"
   to = "/.netlify/functions/create-checkout-session"
   status = 200

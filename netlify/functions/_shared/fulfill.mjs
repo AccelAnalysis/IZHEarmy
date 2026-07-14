@@ -21,7 +21,13 @@ async function resolveDraft(session) {
   }
 
   const legacyCart = JSON.parse(session.metadata?.cart || '[]');
-  if (!legacyCart.length) return { draftId, cart: [], items: [] };
+  if (!legacyCart.length) return {
+    draftId,
+    cart: [],
+    items: [],
+    campaignId: session.metadata?.campaignId || '',
+    campaignSlug: session.metadata?.campaignSlug || ''
+  };
   const { catalog } = await loadCatalog();
   const products = new Map(catalog.products.map((product) => [product.id, product]));
   const items = legacyCart.map((item) => {
@@ -48,7 +54,13 @@ async function resolveDraft(session) {
       quantity: item.quantity
     };
   }).filter(Boolean);
-  return { draftId, cart: legacyCart, items };
+  return {
+    draftId,
+    cart: legacyCart,
+    items,
+    campaignId: session.metadata?.campaignId || '',
+    campaignSlug: session.metadata?.campaignSlug || ''
+  };
 }
 
 export async function fulfillPaidSession(stripe, session) {
@@ -68,12 +80,18 @@ export async function fulfillPaidSession(stripe, session) {
   const codes = getStore('izhe-give-codes');
   try {
     const draft = await resolveDraft(session);
+    const now = new Date().toISOString();
     await orders.setJSON(session.id, {
       status: 'processing',
       sessionId: session.id,
       cart: draft.cart,
       items: draft.items,
-      createdAt: new Date().toISOString()
+      campaignId: draft.campaignId || '',
+      campaignSlug: draft.campaignSlug || '',
+      campaign: draft.campaign || null,
+      createdAt: now,
+      updatedAt: now,
+      statusHistory: [{ status: 'processing', at: now, actor: 'system', note: 'Stripe payment confirmation is being processed.' }]
     });
 
     for (const item of draft.items) {
@@ -97,6 +115,9 @@ export async function fulfillPaidSession(stripe, session) {
               productType: item.productType,
               variants: item.eligibleGiftVariants || []
             },
+            campaignId: draft.campaignId || '',
+            campaignSlug: draft.campaignSlug || '',
+            campaign: draft.campaign || null,
             sourceSessionId: session.id,
             purchaserEmail: session.customer_details?.email || session.customer_email || '',
             createdAt: new Date().toISOString(),
@@ -109,10 +130,16 @@ export async function fulfillPaidSession(stripe, session) {
           saved = result.modified;
         }
         if (!saved) throw new Error('Unable to generate a unique Give One code.');
-        generatedCodes.push({ code, productId: item.productId, productName: item.productName });
+        generatedCodes.push({
+          code,
+          productId: item.productId,
+          productName: item.productName,
+          campaignId: draft.campaignId || ''
+        });
       }
     }
 
+    const paidAt = new Date().toISOString();
     const order = {
       sessionId: session.id,
       paymentIntentId: typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id || '',
@@ -126,9 +153,16 @@ export async function fulfillPaidSession(stripe, session) {
       cart: draft.cart,
       items: draft.items,
       catalogRevision: draft.catalogRevision || Number(session.metadata?.catalogRevision || 0) || null,
+      campaignId: draft.campaignId || session.metadata?.campaignId || '',
+      campaignSlug: draft.campaignSlug || session.metadata?.campaignSlug || '',
+      campaign: draft.campaign || null,
       giveCodes: generatedCodes,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      createdAt: paidAt,
+      updatedAt: paidAt,
+      statusHistory: [
+        { status: 'processing', at: now, actor: 'system', note: 'Stripe payment confirmation is being processed.' },
+        { status: 'paid', at: paidAt, actor: 'system', note: 'Stripe payment confirmed.' }
+      ]
     };
 
     await orders.setJSON(session.id, order);

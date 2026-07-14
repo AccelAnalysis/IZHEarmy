@@ -44,19 +44,42 @@ export default async (request) => {
     const confirmation = createConfirmation('GIVE');
     const now = new Date().toISOString();
     const redemption = {
-      confirmation, code, productId: product.id, productName: product.name,
-      variantId: variant.id, fit: variant.fit || '', size: variant.size, color: variant.color || '', variantSku: variant.sku || '',
+      confirmation,
+      code,
+      productId: product.id,
+      productName: product.name,
+      variantId: variant.id,
+      fit: variant.fit || '',
+      size: variant.size,
+      color: variant.color || '',
+      variantSku: variant.sku || '',
+      campaignId: current.data.campaignId || '',
+      campaignSlug: current.data.campaignSlug || '',
+      campaign: current.data.campaign || null,
       recipient: {
-        firstName: cleanText(payload.firstName, 80), lastName: cleanText(payload.lastName, 80), email,
-        address1: cleanText(payload.address1, 120), address2: cleanText(payload.address2, 120),
-        city: cleanText(payload.city, 80), state, postalCode, country: 'US'
+        firstName: cleanText(payload.firstName, 80),
+        lastName: cleanText(payload.lastName, 80),
+        email,
+        address1: cleanText(payload.address1, 120),
+        address2: cleanText(payload.address2, 120),
+        city: cleanText(payload.city, 80),
+        state,
+        postalCode,
+        country: 'US'
       },
       status: 'pending_fulfillment',
       statusHistory: appendStatusHistory({}, 'pending_fulfillment', 'Give One redemption submitted', 'recipient'),
       createdAt: now,
       updatedAt: now
     };
-    const updatedCode = { ...current.data, status: 'redeemed', redeemedAt: now, updatedAt: now, redemptionId: confirmation, redeemedVariant: { id: variant.id, fit: variant.fit, size: variant.size, color: variant.color } };
+    const updatedCode = {
+      ...current.data,
+      status: 'redeemed',
+      redeemedAt: now,
+      updatedAt: now,
+      redemptionId: confirmation,
+      redeemedVariant: { id: variant.id, fit: variant.fit, size: variant.size, color: variant.color }
+    };
     const updateResult = await codes.setJSON(code, updatedCode, { onlyIfMatch: current.etag });
     if (!updateResult.modified) return json({ error: 'This code was redeemed in another session. Refresh and try again.' }, 409);
     const redemptions = getStore('izhe-redemptions');

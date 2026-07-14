@@ -3,6 +3,8 @@ import { getStore } from '@netlify/blobs';
 import Stripe from 'stripe';
 import { normalizeCart } from './_shared/catalog.mjs';
 import { loadCatalog, publicCatalog } from './_shared/catalog-service.mjs';
+import { campaignAllowsProduct, campaignIsPurchasable } from './_shared/campaign-rules.mjs';
+import { findCampaignBySlug } from './_shared/campaign-service.mjs';
 import { json, methodNotAllowed } from './_shared/http.mjs';
 
 async function resolvePrices(stripe, cart, productMap) {
@@ -56,6 +58,21 @@ function orderItemSnapshot(product, item) {
   };
 }
 
+function campaignSnapshot(campaign) {
+  if (!campaign) return null;
+  return {
+    id: campaign.id,
+    slug: campaign.slug,
+    title: campaign.title,
+    organization: campaign.organization,
+    ministryObjective: campaign.ministryObjective,
+    fulfillmentMethod: campaign.fulfillmentMethod,
+    supportModel: campaign.supportModel,
+    supportRate: campaign.supportRate,
+    supportLabel: campaign.supportLabel
+  };
+}
+
 export default async (request) => {
   if (request.method !== 'POST') return methodNotAllowed(['POST']);
   if (!process.env.STRIPE_SECRET_KEY) return json({ error: 'Checkout is not configured yet. Add STRIPE_SECRET_KEY in Netlify.' }, 503);
@@ -63,10 +80,21 @@ export default async (request) => {
   let draftId = '';
   try {
     const payload = await request.json();
+    const campaignSlug = String(payload.campaignSlug || '').trim().toLowerCase();
+    const campaign = campaignSlug ? await findCampaignBySlug(campaignSlug) : null;
+    if (campaignSlug && (!campaign || !campaignIsPurchasable(campaign))) {
+      return json({ error: 'This campaign is not currently accepting orders.' }, 409);
+    }
     const { catalog } = await loadCatalog();
     const liveCatalog = publicCatalog(catalog);
-    const cart = normalizeCart(payload.cart, liveCatalog.products.filter((product) => product.isPurchasable));
-    const productMap = new Map(liveCatalog.products.map((product) => [product.id, product]));
+    const availableProducts = campaign
+      ? liveCatalog.products.filter((product) => product.isPurchasable && campaignAllowsProduct(campaign, product))
+      : liveCatalog.products.filter((product) => product.isPurchasable);
+    const cart = normalizeCart(payload.cart, availableProducts);
+    const productMap = new Map(availableProducts.map((product) => [product.id, product]));
+    if (campaign && cart.some((item) => !campaignAllowsProduct(campaign, productMap.get(item.productId)))) {
+      return json({ error: 'A product in your cart is not available through this campaign.' }, 409);
+    }
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
     const prices = await resolvePrices(stripe, cart, productMap);
     const origin = new URL(request.url).origin;
@@ -77,24 +105,36 @@ export default async (request) => {
     draftId = randomUUID();
     const drafts = getStore('izhe-checkout-drafts');
     const items = cart.map((item) => orderItemSnapshot(productMap.get(item.productId), item));
-    await drafts.setJSON(draftId, {
+    const campaignData = campaignSnapshot(campaign);
+    const draftRecord = {
       cart,
       items,
       catalogRevision: liveCatalog.revision,
+      campaignId: campaign?.id || '',
+      campaignSlug: campaign?.slug || '',
+      campaign: campaignData,
       status: 'created',
       createdAt: new Date().toISOString()
-    }, { onlyIfNew: true });
+    };
+    await drafts.setJSON(draftId, draftRecord, { onlyIfNew: true });
 
     const lineItems = cart.map((item) => ({
       quantity: item.quantity,
       price: prices.get(productMap.get(item.productId).lookupKey).id
     }));
     const hasGiveOneItems = items.some((item) => item.giveOneEligible);
+    const metadata = {
+      draftId,
+      source: campaign ? 'izhe-campaign' : 'izhe-website',
+      catalogRevision: String(liveCatalog.revision),
+      campaignId: campaign?.id || '',
+      campaignSlug: campaign?.slug || ''
+    };
     const sessionConfig = {
       mode: 'payment',
       line_items: lineItems,
       success_url: `${siteUrl}/success.html?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${siteUrl}/?checkout=cancelled#collection`,
+      cancel_url: campaign ? `${siteUrl}/campaign/${encodeURIComponent(campaign.slug)}?checkout=cancelled` : `${siteUrl}/?checkout=cancelled#collection`,
       automatic_tax: { enabled: true },
       allow_promotion_codes: true,
       billing_address_collection: 'auto',
@@ -102,13 +142,15 @@ export default async (request) => {
       phone_number_collection: { enabled: true },
       customer_creation: 'always',
       invoice_creation: { enabled: true },
-      metadata: { draftId, source: 'izhe-website', catalogRevision: String(liveCatalog.revision) },
-      payment_intent_data: { metadata: { draftId, source: 'izhe-website' } },
+      metadata,
+      payment_intent_data: { metadata },
       custom_text: {
         submit: {
-          message: hasGiveOneItems
-            ? 'Each eligible shirt purchased creates one Give One claim code after payment.'
-            : 'Your order will be prepared after payment is confirmed.'
+          message: campaign
+            ? `This purchase supports ${campaign.organization}. ${hasGiveOneItems ? 'Eligible shirts also create Give One claim codes.' : ''}`.trim()
+            : hasGiveOneItems
+              ? 'Each eligible shirt purchased creates one Give One claim code after payment.'
+              : 'Your order will be prepared after payment is confirmed.'
         },
         shipping_address: { message: 'Enter the U.S. address where this order should be shipped.' }
       }
@@ -132,14 +174,7 @@ export default async (request) => {
     }
 
     const session = await stripe.checkout.sessions.create(sessionConfig);
-    await drafts.setJSON(draftId, {
-      cart,
-      items,
-      catalogRevision: liveCatalog.revision,
-      status: 'checkout_created',
-      sessionId: session.id,
-      createdAt: new Date().toISOString()
-    });
+    await drafts.setJSON(draftId, { ...draftRecord, status: 'checkout_created', sessionId: session.id });
     return json({ url: session.url });
   } catch (error) {
     if (draftId) {
