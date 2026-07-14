@@ -19,45 +19,17 @@
       <div class="flex items-center gap-3"><button id="shareCampaign" class="hidden sm:block border border-white/15 rounded-full px-5 py-2.5 font-bold text-sm">SHARE</button><button id="cartButton" class="bg-gold text-ink rounded-full px-5 py-2.5 font-extrabold text-sm">CART <span id="cartCount" class="ml-1">0</span></button></div>
     </div>
   </header>
-
   <main>
-    <section id="campaignHero" class="relative min-h-[680px] flex items-center bg-cover bg-center pt-24">
-      <div class="absolute inset-0 hero-overlay"></div>
-      <div class="relative z-10 max-w-7xl mx-auto px-6 py-24 w-full">
-        <div class="max-w-3xl">
-          <span id="campaignOrganization" class="text-gold text-xs tracking-[.22em] font-bold uppercase"></span>
-          <h1 id="campaignHeadline" class="font-serif text-5xl md:text-7xl leading-[1.05] mt-5"></h1>
-          <p id="campaignDescription" class="text-xl text-gray-200 font-light leading-relaxed mt-7 max-w-2xl"></p>
-          <div class="flex flex-wrap gap-3 mt-8"><a href="#campaignProducts" id="shopCampaign" class="bg-gold text-ink rounded-full px-7 py-4 font-extrabold">SHOP THE CAMPAIGN</a><a href="#campaignPurpose" class="border border-white/20 rounded-full px-7 py-4 font-bold">MINISTRY OBJECTIVE</a></div>
-          <p id="campaignDates" class="text-sm text-muted mt-7"></p>
-        </div>
-      </div>
-    </section>
-
-    <section class="max-w-7xl mx-auto px-6 -mt-12 relative z-20">
-      <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4" id="campaignMetrics"></div>
-    </section>
-
-    <section id="campaignPurpose" class="max-w-7xl mx-auto px-6 py-24 grid lg:grid-cols-[1.2fr_.8fr] gap-12 items-start">
-      <div><span class="text-gold text-xs tracking-[.22em] font-bold">WHY THIS CAMPAIGN EXISTS</span><h2 class="font-serif text-4xl md:text-5xl mt-4">Supporting a ministry objective through message, apparel, and generosity.</h2><p id="campaignObjective" class="text-lg text-muted leading-relaxed mt-7"></p></div>
-      <aside class="bg-panel border border-white/10 rounded-[2rem] p-7"><h3 class="text-2xl font-bold">Share this campaign</h3><p class="text-muted mt-3">Scan or share the campaign link so others can participate.</p><div class="bg-white rounded-2xl p-4 mt-6"><img id="campaignQr" class="w-full aspect-square" alt="Campaign QR code"></div><div class="grid grid-cols-2 gap-3 mt-4"><button id="copyCampaignLink" class="border border-white/15 rounded-xl py-3 font-bold">COPY LINK</button><a id="downloadCampaignQr" class="bg-white text-ink text-center rounded-xl py-3 font-bold">DOWNLOAD QR</a></div></aside>
-    </section>
-
-    <section id="campaignProducts" class="bg-panel/55 border-y border-white/10 py-24">
-      <div class="max-w-7xl mx-auto px-6"><div class="flex flex-col lg:flex-row justify-between lg:items-end gap-6 mb-12"><div><span class="text-gold text-xs tracking-[.22em] font-bold">CAMPAIGN COLLECTION</span><h2 class="font-serif text-4xl md:text-6xl mt-4">Wear the question. Support the mission.</h2></div><p id="purchaseStatus" class="text-muted max-w-xl lg:text-right"></p></div><div id="productGrid" class="grid sm:grid-cols-2 lg:grid-cols-3 gap-7"></div></div>
-    </section>
+    <section id="campaignHero" class="relative min-h-[680px] flex items-center bg-cover bg-center pt-24"><div class="absolute inset-0 hero-overlay"></div><div class="relative z-10 max-w-7xl mx-auto px-6 py-24 w-full"><div class="max-w-3xl"><span id="campaignOrganization" class="text-gold text-xs tracking-[.22em] font-bold uppercase"></span><h1 id="campaignHeadline" class="font-serif text-5xl md:text-7xl leading-[1.05] mt-5"></h1><p id="campaignDescription" class="text-xl text-gray-200 font-light leading-relaxed mt-7 max-w-2xl"></p><div class="flex flex-wrap gap-3 mt-8"><a href="#campaignProducts" id="shopCampaign" class="bg-gold text-ink rounded-full px-7 py-4 font-extrabold">SHOP THE CAMPAIGN</a><a href="#campaignPurpose" class="border border-white/20 rounded-full px-7 py-4 font-bold">MINISTRY OBJECTIVE</a></div><p id="campaignDates" class="text-sm text-muted mt-7"></p></div></div></section>
+    <section class="max-w-7xl mx-auto px-6 -mt-12 relative z-20"><div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4" id="campaignMetrics"></div></section>
+    <section id="campaignPurpose" class="max-w-7xl mx-auto px-6 py-24 grid lg:grid-cols-[1.2fr_.8fr] gap-12 items-start"><div><span class="text-gold text-xs tracking-[.22em] font-bold">WHY THIS CAMPAIGN EXISTS</span><h2 class="font-serif text-4xl md:text-5xl mt-4">Supporting a ministry objective through message, apparel, and generosity.</h2><p id="campaignObjective" class="text-lg text-muted leading-relaxed mt-7"></p></div><aside class="bg-panel border border-white/10 rounded-[2rem] p-7"><h3 class="text-2xl font-bold">Share this campaign</h3><p class="text-muted mt-3">Scan or share the campaign link so others can participate.</p><div class="bg-white rounded-2xl p-4 mt-6"><img id="campaignQr" class="w-full aspect-square" alt="Campaign QR code"></div><div class="grid grid-cols-2 gap-3 mt-4"><button id="copyCampaignLink" class="border border-white/15 rounded-xl py-3 font-bold">COPY LINK</button><a id="downloadCampaignQr" class="bg-white text-ink text-center rounded-xl py-3 font-bold">DOWNLOAD QR</a></div></aside></section>
+    <section id="campaignProducts" class="bg-panel/55 border-y border-white/10 py-24"><div class="max-w-7xl mx-auto px-6"><div class="flex flex-col lg:flex-row justify-between lg:items-end gap-6 mb-12"><div><span class="text-gold text-xs tracking-[.22em] font-bold">CAMPAIGN COLLECTION</span><h2 class="font-serif text-4xl md:text-6xl mt-4">Wear the question. Support the mission.</h2></div><p id="purchaseStatus" class="text-muted max-w-xl lg:text-right"></p></div><div id="productGrid" class="grid sm:grid-cols-2 lg:grid-cols-3 gap-7"></div></div></section>
   </main>
-
   <footer class="max-w-7xl mx-auto px-6 py-12 flex flex-col sm:flex-row justify-between gap-4 text-sm text-muted"><p>© 2026 IZHE. Who is God to you?</p><a href="/" class="text-gold font-bold">VISIT IZHE</a></footer>
-
   <div id="overlay" class="fixed inset-0 z-40 bg-black/70 hidden opacity-0 transition-opacity"></div>
-  <aside id="cartDrawer" aria-hidden="true" class="fixed right-0 top-0 bottom-0 z-50 w-full max-w-lg bg-panel border-l border-white/10 translate-x-full transition-transform duration-300 flex flex-col">
-    <div class="p-6 border-b border-white/10 flex justify-between items-center"><div><h2 class="text-2xl font-bold">Campaign cart</h2><p class="text-sm text-muted mt-1" id="cartCampaignName"></p></div><button id="closeCart" class="w-11 h-11 rounded-full border border-white/15 text-xl">×</button></div>
-    <div id="cartItems" class="flex-1 overflow-y-auto p-6 space-y-4"></div>
-    <div class="p-6 border-t border-white/10"><div class="flex justify-between text-lg mb-5"><span>Subtotal</span><strong id="cartSubtotal">$0.00</strong></div><button id="checkoutButton" class="w-full bg-gold text-ink py-4 rounded-xl font-extrabold disabled:opacity-40">SECURE CHECKOUT</button><p class="text-xs text-muted mt-3 text-center">Shipping and applicable taxes are calculated in Stripe Checkout.</p></div>
-  </aside>
-
+  <aside id="cartDrawer" aria-hidden="true" class="fixed right-0 top-0 bottom-0 z-50 w-full max-w-lg bg-panel border-l border-white/10 translate-x-full transition-transform duration-300 flex flex-col"><div class="p-6 border-b border-white/10 flex justify-between items-center"><div><h2 class="text-2xl font-bold">Campaign cart</h2><p class="text-sm text-muted mt-1" id="cartCampaignName"></p></div><button id="closeCart" class="w-11 h-11 rounded-full border border-white/15 text-xl">×</button></div><div id="cartItems" class="flex-1 overflow-y-auto p-6 space-y-4"></div><div class="p-6 border-t border-white/10"><div class="flex justify-between text-lg mb-5"><span>Subtotal</span><strong id="cartSubtotal">$0.00</strong></div><button id="checkoutButton" class="w-full bg-gold text-ink py-4 rounded-xl font-extrabold disabled:opacity-40">SECURE CHECKOUT</button><p class="text-xs text-muted mt-3 text-center">Shipping and applicable taxes are calculated in Stripe Checkout.</p></div></aside>
   <div id="message" class="fixed left-1/2 bottom-7 -translate-x-1/2 z-[70] bg-white text-ink rounded-full px-6 py-3 font-bold shadow-2xl hidden"></div>
   <script src="/assets/campaign.js" defer></script>
+  <script src="/assets/campaign-accountability.js" defer></script>
 </body>
 </html>

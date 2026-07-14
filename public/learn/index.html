@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Explore the IZHE Names of God teaching library.">
+  <title>Teaching Library | IZHE</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&family=Playfair+Display:ital,wght@0,600;1,600&display=swap" rel="stylesheet">
+  <script>tailwind.config={theme:{extend:{fontFamily:{sans:['Inter','sans-serif'],serif:['Playfair Display','serif']},colors:{ink:'#09111f',panel:'#111c2f',gold:'#e7bd65',muted:'#9ca9ba'}}}}</script>
+  <style>body{background:#09111f}.prose-copy p{margin-top:1rem;color:#cbd5e1;line-height:1.8}.prose-copy h3{font-family:'Playfair Display',serif;font-size:1.6rem;margin-top:2rem}.chapter-card{transition:transform .2s ease,border-color .2s ease}.chapter-card:hover{transform:translateY(-3px);border-color:#e7bd65}</style>
+</head>
+<body class="bg-ink text-white font-sans min-h-screen">
+  <header class="sticky top-0 z-40 bg-ink/95 backdrop-blur-xl border-b border-white/10">
+    <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between"><a href="/" class="font-extrabold tracking-[.2em] text-xl">IZHE</a><a href="/#collection" class="border border-gold text-gold rounded-full px-5 py-2.5 text-sm font-bold">SHOP THE COLLECTION</a></div>
+  </header>
+  <main>
+    <section class="border-b border-white/10 bg-gradient-to-br from-panel to-ink"><div class="max-w-7xl mx-auto px-6 py-20 md:py-28 grid lg:grid-cols-[1fr_360px] gap-12 items-center"><div><p class="text-gold tracking-[.2em] text-xs font-bold">BOOKS · CHAPTERS · TEACHING RESOURCES</p><h1 class="font-serif text-5xl md:text-7xl mt-5">Discover God through His names.</h1><p class="text-muted text-lg md:text-xl leading-relaxed mt-7 max-w-3xl">Read the biblical foundation, reflect on who God reveals Himself to be, and use the resources to continue the conversation in your church, group, or home.</p></div><div id="featuredBook" class="bg-panel border border-white/10 rounded-[2rem] p-6 min-h-64"></div></div></section>
+    <section class="max-w-7xl mx-auto px-6 py-16 md:py-24"><div class="flex flex-col md:flex-row justify-between md:items-end gap-5 mb-10"><div><p class="text-gold text-xs font-bold tracking-[.18em]">COLLECTION 1</p><h2 class="font-serif text-4xl md:text-5xl mt-3">Names and titles of God</h2></div><input id="chapterSearch" class="bg-panel border border-white/15 rounded-xl px-4 py-3 w-full md:w-80" placeholder="Search names, questions, or Scripture"></div><div id="chapterGrid" class="grid sm:grid-cols-2 lg:grid-cols-3 gap-5"></div></section>
+    <section id="chapterDetail" class="hidden border-y border-white/10 bg-panel"><div class="max-w-5xl mx-auto px-6 py-16 md:py-24"><button id="closeChapter" class="text-gold font-bold mb-8">← ALL CHAPTERS</button><div id="chapterContent"></div></div></section>
+    <section class="max-w-7xl mx-auto px-6 py-16 md:py-24"><p class="text-gold text-xs font-bold tracking-[.18em]">RESOURCE LIBRARY</p><h2 class="font-serif text-4xl md:text-5xl mt-3 mb-10">Continue the teaching</h2><div id="resourceGrid" class="grid md:grid-cols-2 lg:grid-cols-3 gap-6"></div></section>
+  </main>
+  <footer class="border-t border-white/10 py-10 text-center text-muted text-sm"><a href="/" class="text-gold font-bold">IZHE</a> · Who is God to you?</footer>
+  <script src="/assets/learn.js" defer></script>
+</body>
+</html>
