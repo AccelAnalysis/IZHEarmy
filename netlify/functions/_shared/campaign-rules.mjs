@@ -133,17 +133,13 @@ export function campaignAllowsProduct(campaign, product) {
   return (campaign.collectionIds || []).includes(product.collectionId);
 }
 
-export function campaignIsPublic(campaign, now = new Date()) {
+export function campaignIsPublic(campaign) {
   if (!campaign || campaign.publishStatus !== 'published') return false;
-  if (!['scheduled', 'active', 'closed', 'fulfilled'].includes(campaign.status)) return false;
-  if (campaign.status === 'cancelled') return false;
-  const end = campaign.endAt ? new Date(campaign.endAt) : null;
-  if (end && !Number.isNaN(end.valueOf()) && end < now && campaign.status === 'active') return false;
-  return true;
+  return ['scheduled', 'active', 'closed', 'fulfilled'].includes(campaign.status);
 }
 
 export function campaignIsPurchasable(campaign, now = new Date()) {
-  if (!campaignIsPublic(campaign, now)) return false;
+  if (!campaignIsPublic(campaign)) return false;
   if (!['scheduled', 'active'].includes(campaign.status)) return false;
   const start = campaign.startAt ? new Date(campaign.startAt) : null;
   const end = campaign.endAt ? new Date(campaign.endAt) : null;
@@ -162,7 +158,8 @@ export function calculateSupportAmount(campaign, { revenue = 0, soldUnits = 0 } 
 export function computeCampaignMetrics(campaign, { orders = [], codes = [], redemptions = [], batches = [] } = {}) {
   const campaignOrders = orders.filter((item) => item.campaignId === campaign.id);
   const eligibleOrders = campaignOrders.filter((item) => !['cancelled', 'refunded_or_disputed'].includes(item.status));
-  const revenue = eligibleOrders.reduce((sum, item) => sum + Number(item.amountTotal || 0), 0);
+  const revenue = eligibleOrders.reduce((sum, order) => sum + (order.items || []).reduce((itemTotal, item) => itemTotal + Number(item.unitAmount || 0) * Number(item.quantity || 0), 0), 0);
+  const grossCollected = eligibleOrders.reduce((sum, order) => sum + Number(order.amountTotal || 0), 0);
   const soldUnits = eligibleOrders.reduce((sum, order) => sum + (order.items || []).reduce((total, item) => total + Number(item.quantity || 0), 0), 0);
   const campaignCodes = codes.filter((item) => item.campaignId === campaign.id);
   const campaignRedemptions = redemptions.filter((item) => item.campaignId === campaign.id);
@@ -173,6 +170,7 @@ export function computeCampaignMetrics(campaign, { orders = [], codes = [], rede
     campaignId: campaign.id,
     orderCount: campaignOrders.length,
     revenue,
+    grossCollected,
     soldUnits,
     codeCount: campaignCodes.length,
     redeemedCodeCount: redeemedCodes,
