@@ -1,28 +1,47 @@
 # IZHE Live Commerce and Give One Website
 
-This package turns the supplied IZHE design into an operational site with:
+This repository powers the IZHE storefront, book and apparel collections, Stripe Checkout, Give One issuance and redemption, church inquiries, catalog administration, and fulfillment operations.
 
-- Persistent shopping cart with product, size, and quantity selection
-- Server-validated Stripe Checkout
-- Paid-order verification and idempotent Give One code generation
-- Printable QR claim cards on the post-checkout confirmation page
-- One-time code validation and atomic redemption
-- Shipping-address and size collection for Give One fulfillment
-- Netlify Forms for church campaign and support requests
-- Administrator operations dashboard for catalog, media, orders, codes, and redemptions
-- Manual Give One code generation for offline or church orders
-- CSV export of pending redemption records
-- Privacy, terms, contact, success, and error pages
+## Catalog foundation
+
+The storefront, Stripe Checkout validation, manual Give One code creation, catalog preview, and redemption workflow now read from one central catalog stored in Netlify Blobs. On the first catalog request after deployment, the application seeds the current Collection 1 records automatically.
+
+The catalog supports:
+
+- Multiple collections and companion books
+- Apparel, book, bundle, and other product types
+- Product images and reusable uploaded media
+- Product, collection, and variant availability
+- Draft, published, hidden, and archived publishing states
+- Available-from and available-until scheduling
+- Stripe Price lookup keys and server-verified amounts
+- Give One eligibility and configurable gift units per paid unit
+- Immutable collection and product IDs for stable historical references
+- Catalog revisions and ETag conflict protection
+
+## Seeded Collection 1 catalog
+
+- 12 Collection 1 shirt designs
+- Adult pricing category: $37.00
+- Kids pricing category: $27.00
+- Adult fits: Men and Women
+- Kids fits: Boys and Girls
+- Physical companion book: $22.00
+- One Give One claim per paid shirt
+- The book is not Give One eligible
+
+Stripe prices are resolved server-side through lookup keys. The browser never supplies or controls the amount charged.
 
 ## Production stack
 
 - Static front end hosted by Netlify
-- Netlify Functions for checkout, webhooks, redemption, and operations
-- Netlify Blobs for the catalog, uploaded media, orders, Give One codes, and redemption records
-- Stripe Checkout for payment collection and customer receipts
+- Netlify Functions for checkout, webhooks, catalog, media, redemption, and operations
+- Netlify Blobs for the catalog, uploaded media, checkout drafts, orders, Give One codes, and redemption records
+- Stripe-hosted Checkout for payment collection
+- Stripe Tax automatic calculation at Checkout
 - Netlify Forms for church and contact submissions
 
-## 1. Install and run locally
+## Install and run locally
 
 ```bash
 npm install
@@ -32,7 +51,7 @@ npm run dev
 
 Netlify Dev serves the site and local functions together.
 
-## 2. Required environment variables
+## Required environment variables
 
 Set these in Netlify under **Project configuration → Environment variables**:
 
@@ -40,15 +59,62 @@ Set these in Netlify under **Project configuration → Environment variables**:
 STRIPE_SECRET_KEY=sk_live_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 IZHE_ADMIN_TOKEN=a-long-random-secret
-IZHE_SHIPPING_CENTS=695
-SITE_URL=https://your-production-domain.example
+IZHE_SHIPPING_CENTS=699
+SITE_URL=https://izhearmy.netlify.app
 ```
 
-Use Stripe test keys until the complete purchase and refund process has been tested.
+Optional:
 
-## 3. Configure Stripe webhook
+```text
+STRIPE_STANDARD_SHIPPING_RATE_ID=shr_...
+```
 
-In Stripe Workbench / Developers, add this endpoint:
+When `STRIPE_STANDARD_SHIPPING_RATE_ID` is omitted, the Checkout function creates the approved $6.99 Standard U.S. Shipping rate inline for each Checkout Session.
+
+## Stripe catalog lookup keys
+
+Each product record contains a Stripe Price lookup key. The seeded records include Adult and Kids prices for each design, such as:
+
+```text
+izhe_c1_yhwh_adult_usd
+izhe_c1_yhwh_kids_usd
+izhe_c1_iam_adult_usd
+izhe_c1_iam_kids_usd
+...
+izhe_c1_lord_of_lords_adult_usd
+izhe_c1_lord_of_lords_kids_usd
+```
+
+The physical book uses:
+
+```text
+izhe_c1_book_physical_usd
+```
+
+Updating a website price does not silently change Stripe. Checkout opens only when an active Stripe Price with the configured lookup key has the same USD amount as the approved catalog record.
+
+## Stripe Tax setup
+
+Checkout uses:
+
+```js
+automatic_tax: { enabled: true }
+```
+
+All shirt products and the physical book are classified in Stripe as taxable tangible goods with tax-exclusive prices. Stripe calculates the applicable tax from the shipping address.
+
+Before accepting live taxable orders:
+
+1. Open **Tax → Registrations**.
+2. Add the Virginia sales-tax registration using the business's exact Isle of Wight County operating address and legally effective registration date.
+3. Open **Tax → Settings** and confirm the same exact address as the business origin/head-office address.
+4. Verify that tax calculation appears in a Virginia test Checkout and in an out-of-state Checkout.
+
+The repository intentionally does not hard-code a street address or tax registration date.
+
+## Stripe webhook
+
+Configure this endpoint:
 
 ```text
 https://YOUR-DOMAIN/.netlify/functions/stripe-webhook
@@ -58,20 +124,14 @@ Subscribe to:
 
 - `checkout.session.completed`
 - `checkout.session.async_payment_succeeded`
+- `checkout.session.async_payment_failed`
+- `checkout.session.expired`
 - `charge.refunded`
 - `charge.dispute.created`
 
 Copy the endpoint signing secret into `STRIPE_WEBHOOK_SECRET`.
 
-## 4. Deploy
-
-```bash
-npm run deploy
-```
-
-Or connect this folder to a Git repository and import it into Netlify. The included `netlify.toml` identifies `public` as the publish directory and `netlify/functions` as the functions directory.
-
-## 5. Operations
+## Catalog administration
 
 Open:
 
@@ -79,76 +139,58 @@ Open:
 https://YOUR-DOMAIN/admin.html
 ```
 
-Enter the value of `IZHE_ADMIN_TOKEN`. The dashboard can:
-
-- Manage collections, products, images, prices, publishing, and availability
-- Preview draft catalog changes before publication
-- View Stripe-paid orders
-- View active and redeemed Give One codes
-- View pending fulfillment records and recipient addresses
-- Generate codes for manual/offline orders
-- Export redemptions to CSV
-- Mark redemptions fulfilled and save a tracking number or fulfillment note
-
-Netlify Forms submissions are available in the Netlify dashboard. Configure email notifications there for `church-interest` and `contact`.
-
-## Catalog administration
-
-The storefront, Stripe Checkout validation, manual Give One code creation, and catalog preview now read from one central catalog stored in Netlify Blobs. On the first catalog request after deployment, the application seeds the current Collection 1 products automatically.
-
-Open `https://YOUR-DOMAIN/admin.html`, enter `IZHE_ADMIN_TOKEN`, and use these tabs:
+Enter the value of `IZHE_ADMIN_TOKEN`. The dashboard includes:
 
 - **Overview** — catalog health, publication counts, unavailable products, orders, codes, and fulfillment alerts
-- **Collections** — create future collections, set titles and book details, schedule availability, and control draft/published/archived status
-- **Products** — edit product copy, Stripe lookup keys, prices, images, Give One eligibility, publishing status, and availability
+- **Collections** — create future collections, manage teaching/book details, schedule availability, and control publishing
+- **Products** — edit copy, Stripe lookup keys, prices, images, Give One eligibility, variants, publishing, and availability
 - **Media** — upload JPG, PNG, or WebP product images up to 5 MB and assign them as primary or gallery images
-- **Orders & Give One** — preserve the existing orders, codes, redemptions, fulfillment updates, and CSV export workflow
+- **Orders & Give One** — view orders, create manual codes, manage redemptions, export CSV data, and mark gifts fulfilled
 
 ### Publishing workflow
 
 1. Create or edit a collection and keep it in `draft` while preparing it.
-2. Create products under that collection, add at least one product image, and configure apparel variants.
-3. Keep new products in `draft` or `hidden` until their Stripe lookup keys and prices are ready.
-4. Use **Preview Catalog** to inspect draft and paused records without exposing them in the public storefront.
-5. Set the collection and product to `published` and choose an available status when ready.
-6. The public storefront refreshes from the published catalog, while checkout independently validates the same product, variant, price, and availability record.
+2. Create products under that collection, add at least one image, and configure apparel variants.
+3. Keep products in `draft` or `hidden` until their Stripe lookup keys and prices are ready.
+4. Use **Preview Catalog** to inspect draft, hidden, paused, and scheduled records without exposing them publicly.
+5. Set the collection and product to `published` and choose `available` or `preorder` when ready.
+6. The storefront refreshes from the published catalog, while checkout independently validates the same product, variant, amount, and availability record.
 
-Existing product and collection IDs are intentionally immutable after creation so historical orders and Give One records remain referentially stable.
+Product and collection IDs cannot be changed after creation because paid orders, Give One codes, and fulfillment records retain those references. Product and variant snapshots are also stored with paid orders and Give One codes so later catalog edits do not rewrite historical obligations.
 
-### Availability levels
+## Checkout and fulfillment flow
 
-Availability can be controlled at the collection, product, and apparel-variant levels. Supported operating states include available, preorder, limited, sold out, paused, hidden, and retired. Optional available-from and available-until dates support scheduled releases.
+1. The browser sends product ID, variant ID, fit, size, and quantity.
+2. The server loads the central published catalog and validates product and variant availability.
+3. The server resolves active Stripe Prices by lookup key and verifies the amounts.
+4. The cart and product snapshots are stored in a Netlify Blob checkout draft.
+5. Stripe Checkout collects payment, shipping address, phone, shipping, and applicable tax.
+6. The webhook confirms payment and stores the paid order.
+7. Give One codes are generated according to each eligible product's configured gift-unit rule; books generate none by default.
+8. The recipient chooses an allowed fit and size and submits a U.S. shipping address.
+9. The operations dashboard shows the redemption for fulfillment.
 
-Product records include a Stripe Price lookup key. Updating a website price does not silently change Stripe: checkout opens only when an active Stripe Price with that lookup key has the same USD amount as the approved catalog record.
+## Product image management
 
-## 6. Fulfillment workflow
+Uploaded images are stored in the `izhe-media` Netlify Blobs store and served through the media function. Administrators can reuse an uploaded image across products, assign primary/gallery roles, add image URLs, and maintain accessible alt text. Published products must have at least one image.
 
-1. A customer pays through Stripe Checkout.
-2. The webhook stores the order and creates one Give One code per purchased shirt.
-3. The confirmation page shows printable QR cards and claim links.
-4. A recipient submits a code, size, and U.S. shipping address.
-5. The code is atomically marked redeemed to prevent reuse.
-6. The redemption appears in `admin.html` as `pending_fulfillment`.
-7. Export the CSV or use the dashboard data to place the fulfillment order.
+## Deploy
 
-## Business settings to review before launch
+Connect this repository to Netlify or run:
 
-- Seed catalog prices: $37.00 adult shirts, $27.00 kids shirts, and $22.00 for the Collection 1 book
-- Standard shipping: currently $6.95, controlled by `IZHE_SHIPPING_CENTS`
-- Shipping territory: currently United States only
-- Sizes, fits, colors, product availability, and variant availability are managed in the catalog dashboard
-- Give One ratio: one claim code per purchased shirt
-- Returns, refunds, exchanges, replacement claims, taxes, and chargeback handling
-- The final product photography and production garment specifications
-- Counsel review of privacy policy and terms
+```bash
+npm run deploy
+```
 
-## Refunds and disputes
+The included `netlify.toml` identifies `public` as the publish directory and `netlify/functions` as the functions directory.
 
-The Stripe webhook cancels unused Give One codes when a charge is refunded or disputed. If a code was already redeemed, the order is marked `refund_requires_review` in the stored order record so the team can resolve the fulfillment and financial exception.
+## Security and integrity
 
-## Security notes
-
-- Stripe secret keys and the admin token remain server-side.
-- Prices and product availability are validated in the checkout function, not trusted from the browser.
-- Give One redemption uses an ETag conditional write so the same code cannot be redeemed simultaneously twice.
-- The operations dashboard requires a bearer token; replace this with full identity-based administrator authentication as the team grows.
+- Stripe secret keys and the administrator token remain server-side.
+- Prices and availability are validated server-side against the central catalog.
+- Checkout carts and product snapshots are stored server-side instead of being packed into Stripe metadata.
+- Give One issuance happens only after confirmed payment.
+- Redemption uses ETag conditional writes to prevent simultaneous reuse.
+- Catalog writes use revision and ETag checks to prevent one administrator session from silently overwriting another.
+- Refunds and disputes cancel unused Give One codes.
+- If a code has already been redeemed, the related refunded or disputed order is marked for manual review.
