@@ -49,7 +49,11 @@ function ledgerTotals(entries) {
 }
 
 export function campaignAccountability(campaign, records, ledger = []) {
-  const metrics = computeCampaignMetrics(campaign, records);
+  const accountabilityRecords = {
+    ...records,
+    orders: (records.orders || []).filter((order) => order.status !== 'refund_requires_review')
+  };
+  const metrics = computeCampaignMetrics(campaign, accountabilityRecords);
   const entries = ledger.filter((entry) => entry.campaignId === campaign.id);
   const totals = ledgerTotals(entries);
   const supportAccrued = metrics.supportAmount + totals.supportAdjustments;
