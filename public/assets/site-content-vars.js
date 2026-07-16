@@ -5,6 +5,7 @@ const IZHE_visualFrame = IZHE_contentParams.get('visualFrame') === '1';
 const IZHE_contentToken = IZHE_contentPreview || IZHE_visualFrame ? localStorage.getItem('izhe-admin-token') || '' : '';
 const IZHE_spacing = { compact: '3.75rem', standard: '5.5rem', generous: '7.5rem' };
 const IZHE_overlayAlpha = { light: .38, medium: .62, strong: .82 };
+const IZHE_foregroundOverlayAlpha = { none: 0, light: .3, medium: .58, strong: .82 };
 const IZHE_text = (selector, value) => { const element = document.querySelector(selector); if (element && value !== undefined && value !== null) element.textContent = String(value); };
 const IZHE_attr = (selector, name, value) => { const element = document.querySelector(selector); if (element && value) element.setAttribute(name, value); };
 const IZHE_fieldsFor = (records, key) => records?.[key]?.fields || records?.[key] || {};
@@ -32,4 +33,18 @@ function IZHE_applyBackground(section, image, kind, overlay = 'strong', focal = 
   };
   section.style.backgroundImage = `${gradients[kind]},url("${String(image).replaceAll('"','%22')}")`;
   section.style.backgroundPosition = focal || 'center';
+}
+function IZHE_applyForegroundImage(image, overlayElement, fields = {}, mode = 'story') {
+  if (!image) return;
+  if (fields.image) image.src = fields.image;
+  if (fields.imageAlt !== undefined) image.alt = fields.imageAlt;
+  image.style.objectPosition = fields.imageFocalPoint || 'center';
+  image.style.objectFit = fields.imageFit || 'cover';
+  if (!overlayElement) return;
+  const alpha = IZHE_foregroundOverlayAlpha[fields.imageOverlay] ?? IZHE_foregroundOverlayAlpha.medium;
+  if (mode === 'give-one') {
+    overlayElement.style.background = `linear-gradient(to top,rgba(2,6,23,${Math.min(.95, alpha + .18)}),rgba(2,6,23,${Math.max(.04, alpha - .35)}) 55%,transparent)`;
+  } else {
+    overlayElement.style.background = `linear-gradient(to top,rgba(2,6,23,${Math.min(.95, alpha + .16)}),rgba(2,6,23,${Math.max(.03, alpha - .42)}) 58%,transparent)`;
+  }
 }

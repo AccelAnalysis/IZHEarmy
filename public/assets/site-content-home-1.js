@@ -21,7 +21,9 @@ function IZHE_applyHeroAndStory(records) {
   if (heading && (story.heading !== undefined || story.accent !== undefined)) { heading.replaceChildren(document.createTextNode(story.heading || '')); heading.append(document.createElement('br')); const accent = document.createElement('span'); accent.className = 'italic text-brand-gold'; accent.textContent = story.accent || ''; heading.append(accent); }
   IZHE_text('#story .space-y-5 p:nth-child(1)', story.paragraph1);
   IZHE_text('#story .space-y-5 p:nth-child(2)', story.paragraph2);
-  const image = document.querySelector('#story img'); if (image && story.image) image.src = story.image; if (image && story.imageAlt !== undefined) image.alt = story.imageAlt;
+  const storyImage = document.querySelector('#story img');
+  const storyOverlay = document.querySelector('#story .relative.group > .absolute.inset-0');
+  IZHE_applyForegroundImage(storyImage, storyOverlay, story, 'story');
   IZHE_text('#story .relative.group .absolute.bottom-7 p:nth-child(1)', story.imageEyebrow);
   IZHE_text('#story .relative.group .absolute.bottom-7 p:nth-child(2)', story.imageStatement);
   IZHE_text('#story .grid.sm\\:grid-cols-2 > div:nth-child(1) h3', story.card1Title);
