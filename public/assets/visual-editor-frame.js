@@ -8,7 +8,6 @@
     ['#top .max-w-3xl > p:nth-of-type(3)','home-hero','body','Hero supporting message','text'],
     ['#top .max-w-3xl > div:last-child a:nth-child(1)','home-hero','primaryLabel','Primary button','button','primaryTarget'],
     ['#top .max-w-3xl > div:last-child a:nth-child(2)','home-hero','secondaryLabel','Secondary button','button','secondaryTarget'],
-    ['#story img','home-story','image','Story image','image'],
     ['#story .relative.group .absolute.bottom-7 p:nth-child(1)','home-story','imageEyebrow','Story image eyebrow','text'],
     ['#story .relative.group .absolute.bottom-7 p:nth-child(2)','home-story','imageStatement','Story image statement','text'],
     ['#story .lg\\:grid-cols-2 > div:nth-child(2) span','home-story','eyebrow','Story eyebrow','text'],
@@ -39,7 +38,6 @@
     ['#give-one .lg\\:col-span-7 > div:nth-child(2) p','home-give-one','step2Body','Step 2 text','text'],
     ['#give-one .lg\\:col-span-7 > div:nth-child(3) h3','home-give-one','step3Title','Step 3 title','text'],
     ['#give-one .lg\\:col-span-7 > div:nth-child(3) p','home-give-one','step3Body','Step 3 text','text'],
-    ['#give-one .lg\\:col-span-5 img','home-give-one','image','Give One purpose image','image'],
     ['#give-one .lg\\:col-span-5 .absolute.bottom-0 p:nth-of-type(1)','home-give-one','purposeEyebrow','Purpose eyebrow','text'],
     ['#give-one .lg\\:col-span-5 .absolute.bottom-0 h3','home-give-one','purposeHeading','Purpose heading','text'],
     ['#give-one .lg\\:col-span-5 .absolute.bottom-0 p:nth-of-type(2)','home-give-one','purposeBody','Purpose description','text'],
@@ -58,23 +56,67 @@
     ['book','home-book','backgroundImage','Book background'],
     ['church','home-church','backgroundImage','Church background']
   ];
+  const foregroundImages = [
+    { container: '#story .relative.group', image: '#story img', key: 'home-story', field: 'image', label: 'Story image', altField: 'imageAlt', focalField: 'imageFocalPoint', fitField: 'imageFit', overlayField: 'imageOverlay' },
+    { container: '#give-one .lg\\:col-span-5', image: '#give-one .lg\\:col-span-5 img', key: 'home-give-one', field: 'image', label: 'Give One purpose image', altField: 'imageAlt', focalField: 'imageFocalPoint', fitField: 'imageFit', overlayField: 'imageOverlay' }
+  ];
   const sections = ['top','story','book','collection','give-one','church'];
   let records = {};
 
   function send(message) { parent.postMessage(message, parentOrigin); }
   function selectionFrom(element) {
-    return { kind: element.dataset.veKind, key: element.dataset.veKey, field: element.dataset.veField, label: element.dataset.veLabel, targetField: element.dataset.veTargetField || '' };
+    return {
+      kind: element.dataset.veKind,
+      key: element.dataset.veKey,
+      field: element.dataset.veField,
+      label: element.dataset.veLabel,
+      targetField: element.dataset.veTargetField || '',
+      altField: element.dataset.veAltField || '',
+      focalField: element.dataset.veFocalField || '',
+      fitField: element.dataset.veFitField || '',
+      overlayField: element.dataset.veOverlayField || ''
+    };
   }
   function addStyles() {
     if (document.getElementById('visualFrameStyles')) return;
-    document.head.insertAdjacentHTML('beforeend', `<style id="visualFrameStyles">body{padding-top:34px!important}.ve-edit-bar{position:fixed;top:0;inset-inline:0;height:34px;background:#fbbf24;color:#020617;z-index:9999;display:flex;align-items:center;justify-content:center;font:800 11px/1 Inter,sans-serif;letter-spacing:.12em}.ve-editable{outline:1px dashed transparent;outline-offset:5px;cursor:text}.ve-editable:hover,.ve-selected{outline:2px solid #fbbf24!important;background-color:rgba(251,191,36,.07)}.ve-image{cursor:pointer;outline:2px dashed transparent;outline-offset:4px}.ve-image:hover{outline-color:#fbbf24}.ve-section-handle,.ve-background-handle,.ve-locked-label{position:absolute;z-index:9990;border:0;border-radius:999px;padding:7px 10px;font:800 10px/1 Inter,sans-serif;letter-spacing:.08em;box-shadow:0 8px 24px rgba(0,0,0,.35)}.ve-section-handle{top:12px;left:12px;background:#fbbf24;color:#020617}.ve-background-handle{top:12px;right:12px;background:#fff;color:#020617}.ve-locked-label{top:12px;right:12px;background:#334155;color:#e2e8f0}.ve-hidden-preview{opacity:.35!important;display:block!important}.ve-hidden-preview::after{content:'HIDDEN WHEN PUBLISHED';position:absolute;inset:0;border:3px dashed #f87171;pointer-events:none;z-index:9980}</style>`);
-    document.body.insertAdjacentHTML('afterbegin','<div class="ve-edit-bar">PROTECTED VISUAL EDIT MODE · CLICK GOLD-OUTLINED CONTENT TO EDIT</div>');
+    document.head.insertAdjacentHTML('beforeend', `<style id="visualFrameStyles">body{padding-top:34px!important}.ve-edit-bar{position:fixed;top:0;inset-inline:0;height:34px;background:#fbbf24;color:#020617;z-index:9999;display:flex;align-items:center;justify-content:center;font:800 11px/1 Inter,sans-serif;letter-spacing:.12em}.ve-editable{outline:1px dashed transparent;outline-offset:5px;cursor:text}.ve-editable:hover,.ve-selected{outline:2px solid #fbbf24!important;background-color:rgba(251,191,36,.07)}.ve-image{cursor:pointer;outline:2px dashed transparent;outline-offset:4px}.ve-image:hover{outline-color:#fbbf24}.ve-section-handle,.ve-background-handle,.ve-image-handle,.ve-locked-label{position:absolute;z-index:9990;border:0;border-radius:999px;padding:7px 10px;font:800 10px/1 Inter,sans-serif;letter-spacing:.08em;box-shadow:0 8px 24px rgba(0,0,0,.35)}.ve-section-handle{top:12px;left:12px;background:#fbbf24;color:#020617}.ve-background-handle{top:12px;right:12px;background:#fff;color:#020617}.ve-image-handle{top:12px;right:12px;background:#fbbf24;color:#020617}.ve-image-handle:hover,.ve-background-handle:hover,.ve-section-handle:hover{transform:translateY(-1px)}.ve-locked-label{top:12px;right:12px;background:#334155;color:#e2e8f0}.ve-hidden-preview{opacity:.35!important;display:block!important}.ve-hidden-preview::after{content:'HIDDEN WHEN PUBLISHED';position:absolute;inset:0;border:3px dashed #f87171;pointer-events:none;z-index:9980}</style>`);
+    document.body.insertAdjacentHTML('afterbegin','<div class="ve-edit-bar">PROTECTED VISUAL EDIT MODE · CLICK GOLD-OUTLINED CONTENT OR CHANGE IMAGE</div>');
   }
   function prepareStoryHeading() {
     const heading = document.querySelector('#story h2');
     if (!heading || heading.querySelector('[data-ve-field="heading"]')) return;
     const first = [...heading.childNodes].find((node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
     if (first) { const span = document.createElement('span'); span.textContent = first.textContent; first.replaceWith(span); span.dataset.veGenerated = 'story-heading'; }
+  }
+  function assignSelectionData(element, config, kind = 'image') {
+    Object.assign(element.dataset, {
+      veKey: config.key,
+      veField: config.field,
+      veLabel: config.label,
+      veKind: kind,
+      veAltField: config.altField || '',
+      veFocalField: config.focalField || '',
+      veFitField: config.fitField || '',
+      veOverlayField: config.overlayField || ''
+    });
+  }
+  function annotateForegroundImages() {
+    foregroundImages.forEach((config) => {
+      const container = document.querySelector(config.container);
+      const image = document.querySelector(config.image);
+      if (!container || !image) return;
+      assignSelectionData(image, config);
+      image.classList.add('ve-image');
+      let button = container.querySelector(`:scope > .ve-image-handle[data-ve-field="${config.field}"]`);
+      if (!button) {
+        button = document.createElement('button');
+        button.type = 'button';
+        button.className = 've-image-handle';
+        button.textContent = 'CHANGE IMAGE';
+        assignSelectionData(button, config);
+        container.append(button);
+      }
+    });
   }
   function annotate() {
     addStyles(); prepareStoryHeading();
@@ -97,6 +139,7 @@
       if (kind === 'text' || kind === 'manual') { element.contentEditable = 'true'; element.spellcheck = true; element.dataset.veKind = 'text'; element.classList.add('ve-editable'); }
       else element.classList.add(kind === 'image' ? 've-image' : 've-editable');
     }
+    annotateForegroundImages();
     for (const sectionId of sections) {
       const section = document.getElementById(sectionId); if (!section || section.querySelector(':scope > .ve-section-handle')) continue;
       if (getComputedStyle(section).position === 'static') section.style.position = 'relative';
