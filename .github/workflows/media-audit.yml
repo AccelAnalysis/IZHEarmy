@@ -1,0 +1,32 @@
+name: IZHE media audit
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'IZHE Resource Folder/**'
+      - 'scripts/media_audit.py'
+      - '.github/workflows/media-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install image tooling
+        run: python -m pip install --disable-pip-version-check pillow
+      - name: Build technical inventory and contact sheets
+        run: python scripts/media_audit.py
+      - name: Upload review package
+        uses: actions/upload-artifact@v4
+        with:
+          name: izhe-media-audit
+          path: media-audit-output
+          if-no-files-found: error
