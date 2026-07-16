@@ -4,13 +4,12 @@ const visualHuman = (value) => String(value || '').replaceAll('_',' ').replace(/
 function visualMediaPublishable(media) {
   if (!media || media.usageStatus !== 'approved') return false;
   if (['unverified','pending_release','restricted'].includes(media.rightsStatus)) return false;
-  if (media.category === 'apparel_product' && ['review_required','concept_only','legacy_or_unverified','restricted'].includes(media.productAccuracyStatus)) return false;
   return true;
 }
 function visualMediaReason(media) {
   if (media.usageStatus !== 'approved') return `Usage: ${visualHuman(media.usageStatus || 'draft')}`;
   if (['unverified','pending_release','restricted'].includes(media.rightsStatus)) return `Rights: ${visualHuman(media.rightsStatus)}`;
-  if (media.category === 'apparel_product' && ['review_required','concept_only','legacy_or_unverified','restricted'].includes(media.productAccuracyStatus)) return `Product: ${visualHuman(media.productAccuracyStatus)}`;
+  if (media.category === 'apparel_product' && media.productAccuracyStatus !== 'accurate') return 'Approved for site/editorial use only';
   return 'Approved';
 }
 function visualMediaCards() {
@@ -22,7 +21,7 @@ function visualMediaCards() {
 }
 function imageTools(key, field, current) {
   const categories = VISUAL_MEDIA_CATEGORIES.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(visualHuman(value))}</option>`).join('');
-  return `<h3>Global Site Media Library</h3><p class="help">Only approved assets with acceptable rights and product verification can be applied to the public website.</p><div class="row"><input id="visualMediaSearch" class="field" placeholder="Search media"><select id="visualMediaCategory" class="field"><option value="">All categories</option>${categories}</select></div><div id="visualMediaGrid" class="media-grid">${visualMediaCards() || '<p class="help">No images are available.</p>'}</div><div class="upload"><label class="label" style="margin-top:0">UPLOAD TO GLOBAL LIBRARY</label><input id="visualMediaFile" type="file" accept="image/jpeg,image/png,image/webp" class="field"><input id="visualMediaTitle" class="field" placeholder="Media title"><input id="visualMediaAlt" class="field" placeholder="Accessible image description"><div class="row"><select id="visualMediaUploadCategory" class="field">${categories}</select><select id="visualMediaUploadUsage" class="field"><option value="draft">Draft</option><option value="approved">Approved</option></select></div><div class="row"><select id="visualMediaUploadRights" class="field"><option value="unverified">Rights unverified</option><option value="pending_release">Release pending</option><option value="release_on_file">Release on file</option><option value="owned_no_people">Owned / no people</option><option value="licensed">Licensed</option></select><select id="visualMediaUploadProduct" class="field"><option value="not_applicable">Product not applicable</option><option value="review_required">Product review required</option><option value="accurate">Product accurate</option><option value="concept_only">Concept only</option><option value="legacy_or_unverified">Legacy or unverified</option></select></div><button id="visualMediaUpload" type="button" class="button" style="width:100%;margin-top:10px">UPLOAD TO LIBRARY</button><p class="help">Use Approved only when the supporting license/release and any product match have been confirmed.</p></div>${current ? `<p class="help">Current image: ${escapeHtml(current)}</p>` : ''}`;
+  return `<h3>Global Site Media Library</h3><p class="help">Approved assets with acceptable rights can be used in website sections. Apparel concepts and legacy flat lays remain blocked from current product listings until product accuracy is verified.</p><div class="row"><input id="visualMediaSearch" class="field" placeholder="Search media"><select id="visualMediaCategory" class="field"><option value="">All categories</option>${categories}</select></div><div id="visualMediaGrid" class="media-grid">${visualMediaCards() || '<p class="help">No images are available.</p>'}</div><div class="upload"><label class="label" style="margin-top:0">UPLOAD TO GLOBAL LIBRARY</label><input id="visualMediaFile" type="file" accept="image/jpeg,image/png,image/webp" class="field"><input id="visualMediaTitle" class="field" placeholder="Media title"><input id="visualMediaAlt" class="field" placeholder="Accessible image description"><div class="row"><select id="visualMediaUploadCategory" class="field">${categories}</select><select id="visualMediaUploadUsage" class="field"><option value="draft">Draft</option><option value="approved">Approved</option></select></div><div class="row"><select id="visualMediaUploadRights" class="field"><option value="unverified">Rights unverified</option><option value="pending_release">Release pending</option><option value="release_on_file">Release on file</option><option value="owned_no_people">Owned / no people</option><option value="licensed">Licensed</option></select><select id="visualMediaUploadProduct" class="field"><option value="not_applicable">Product not applicable</option><option value="review_required">Product review required</option><option value="accurate">Product accurate</option><option value="concept_only">Concept only</option><option value="legacy_or_unverified">Legacy or unverified</option></select></div><button id="visualMediaUpload" type="button" class="button" style="width:100%;margin-top:10px">UPLOAD TO LIBRARY</button><p class="help">Use Approved only when ownership, license, or release requirements are satisfied.</p></div>${current ? `<p class="help">Current image: ${escapeHtml(current)}</p>` : ''}`;
 }
 function imageCompanionTools(selection, record) {
   const fields = record?.fields || {};
@@ -44,11 +43,7 @@ function bindImageCompanionTools(selection) {
   bindings.forEach(([id, field, eventName]) => {
     const input = document.getElementById(id);
     if (!input || !field) return;
-    let snapshotted = false;
-    input.addEventListener(eventName, () => {
-      updateField(selection.key, field, input.value, { snapshot: !snapshotted });
-      snapshotted = true;
-    });
+    input.addEventListener(eventName, () => updateField(selection.key, field, input.value));
   });
 }
 function filterVisualMedia() {
@@ -65,16 +60,11 @@ async function visualDimensions(file) {
   bitmap.close();
   return result;
 }
-function applyVisualMedia(selection, url, alt = '') {
-  pushSnapshot();
-  updateField(selection.key, selection.field, url, { snapshot: false });
-  if (selection.altField && alt) updateField(selection.key, selection.altField, alt, { snapshot: false });
-  renderFieldSelection(selection);
-}
-function bindImageTools(selection) {
-  const key = selection.key;
-  const field = selection.field;
-  document.querySelectorAll('[data-media-url]:not([disabled])').forEach((button) => button.addEventListener('click', () => applyVisualMedia(selection, button.dataset.mediaUrl, button.dataset.mediaAlt)));
+function bindImageTools(key, field, selection = selected) {
+  document.querySelectorAll('[data-media-url]:not([disabled])').forEach((button) => button.addEventListener('click', () => {
+    updateField(key, field, button.dataset.mediaUrl);
+    if (selection?.altField && button.dataset.mediaAlt) updateField(key, selection.altField, button.dataset.mediaAlt, { snapshot:false });
+  }));
   document.getElementById('visualMediaSearch')?.addEventListener('input', filterVisualMedia);
   document.getElementById('visualMediaCategory')?.addEventListener('change', filterVisualMedia);
   document.getElementById('visualMediaUpload')?.addEventListener('click', async () => {
@@ -96,8 +86,11 @@ function bindImageTools(selection) {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Image upload failed.');
       data.media.unshift(result.media);
-      if (visualMediaPublishable(result.media)) applyVisualMedia(selection, result.media.url, result.media.alt || alt);
-      else renderFieldSelection(selected);
+      if (visualMediaPublishable(result.media)) {
+        updateField(key, field, result.media.url);
+        if (selection?.altField && result.media.alt) updateField(key, selection.altField, result.media.alt, { snapshot:false });
+      }
+      renderFieldSelection(selected);
       setStatus(visualMediaPublishable(result.media) ? 'Image uploaded and applied to the visual draft.' : 'Image uploaded as a governed media record. Complete its approval in the Media workspace before using it.');
     } catch (error) { setStatus(error.message); }
   });
