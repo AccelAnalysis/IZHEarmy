@@ -1,11 +1,11 @@
 const timestamp = '2026-07-14T00:00:00.000Z';
 
-function record(key, fields) {
-  return { key, label: key, status: 'published', fields, publishAt: '', unpublishAt: '', revision: 1, createdAt: timestamp, updatedAt: timestamp };
+function record(key, fields, status = 'published') {
+  return { key, label: key, status, fields, publishAt: '', unpublishAt: '', revision: 1, createdAt: timestamp, updatedAt: timestamp };
 }
 
 export const DEFAULT_CONTENT_LIBRARY = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   revision: 1,
   updatedAt: timestamp,
   records: [
@@ -83,6 +83,6 @@ export const DEFAULT_CONTENT_LIBRARY = {
       giveOneVisible: true, giveOneOrder: 4, giveOneAlignment: 'left', giveOneImagePosition: 'right', giveOneSpacing: 'standard',
       churchVisible: true, churchOrder: 5, churchAlignment: 'left', churchOverlay: 'strong', churchSpacing: 'standard'
     }),
-    record('site-announcement', { message: '', linkLabel: '', linkUrl: '' })
+    record('site-announcement', { message: '', linkLabel: '', linkUrl: '' }, 'hidden')
   ]
 };
