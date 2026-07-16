@@ -13,7 +13,9 @@ function IZHE_applyBookGiveChurch(records) {
   const give = IZHE_fieldsFor(records, 'home-give-one');
   IZHE_text('#give-one .max-w-3xl span', give.eyebrow); IZHE_text('#give-one .max-w-3xl h2', give.heading); IZHE_text('#give-one .max-w-3xl p', give.body);
   for (let index = 1; index <= 3; index += 1) { IZHE_text(`#give-one .lg\\:col-span-7 > div:nth-child(${index}) h3`, give[`step${index}Title`]); IZHE_text(`#give-one .lg\\:col-span-7 > div:nth-child(${index}) p`, give[`step${index}Body`]); }
-  const giveImage = document.querySelector('#give-one .lg\\:col-span-5 img'); if (giveImage && give.image) giveImage.src = give.image; if (giveImage && give.imageAlt !== undefined) giveImage.alt = give.imageAlt;
+  const giveImage = document.querySelector('#give-one .lg\\:col-span-5 img');
+  const giveOverlay = document.querySelector('#give-one .lg\\:col-span-5 > .absolute.inset-0');
+  IZHE_applyForegroundImage(giveImage, giveOverlay, give, 'give-one');
   IZHE_text('#give-one .lg\\:col-span-5 .absolute.bottom-0 p:nth-of-type(1)', give.purposeEyebrow); IZHE_text('#give-one .lg\\:col-span-5 .absolute.bottom-0 h3', give.purposeHeading); IZHE_text('#give-one .lg\\:col-span-5 .absolute.bottom-0 p:nth-of-type(2)', give.purposeBody);
   const church = IZHE_fieldsFor(records, 'home-church');
   IZHE_text('#church .lg\\:grid-cols-2 > div:first-child > span', church.eyebrow); IZHE_text('#church .lg\\:grid-cols-2 > div:first-child > h2', church.heading);
