@@ -16,6 +16,15 @@ async function listMedia() {
   return media.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
 }
 
+async function safeListMedia() {
+  try {
+    return { media: await listMedia(), warning: '' };
+  } catch (error) {
+    console.error('visual-editor media library', error);
+    return { media: [], warning: 'The Media Library could not be loaded. Text and layout editing remain available.' };
+  }
+}
+
 function mergeWorkingRecords(library, draft) {
   const changes = new Map((draft?.changes || []).map((change) => [change.key, change]));
   return library.records.map((record) => {
@@ -38,10 +47,10 @@ function cleanChanges(changes, library) {
 }
 
 export async function loadVisualEditorData() {
-  const [{ library }, draft, media] = await Promise.all([
+  const [{ library }, draft, mediaResult] = await Promise.all([
     loadContentLibrary(),
     getStore(DRAFT_STORE).get(DRAFT_KEY, { type: 'json', consistency: 'strong' }).catch(() => null),
-    listMedia()
+    safeListMedia()
   ]);
   const safeDraft = draft && Number(draft.baseRevision) === library.revision ? draft : draft ? { ...draft, stale: true } : null;
   const records = mergeWorkingRecords(library, safeDraft?.stale ? null : safeDraft);
@@ -50,7 +59,8 @@ export async function loadVisualEditorData() {
     libraryUpdatedAt: library.updatedAt,
     records,
     schemas: CONTENT_SCHEMAS,
-    media,
+    media: mediaResult.media,
+    warnings: mediaResult.warning ? [mediaResult.warning] : [],
     draft: safeDraft,
     draftChanges: safeDraft?.stale ? [] : safeDraft?.changes || []
   };

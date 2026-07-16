@@ -17,6 +17,22 @@ function validateHistory(input) {
   })).filter((entry) => entry.recordKey && entry.record);
 }
 
+function hasMeaningfulValue(value) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return Number.isFinite(value);
+  return String(value ?? '').trim() !== '';
+}
+
+export function normalizeLegacyContentRecord(raw, fallback = null) {
+  const merged = fallback ? { ...fallback, ...raw, fields: { ...fallback.fields, ...(raw?.fields || {}) } } : raw;
+  if (!merged) return null;
+  const fields = merged.fields || {};
+  if (merged.key === 'site-announcement' && merged.status === 'published' && !Object.values(fields).some(hasMeaningfulValue)) {
+    return { ...merged, status: 'hidden' };
+  }
+  return merged;
+}
+
 function validateLibrary(input) {
   const incoming = new Map((input?.records || []).map((record) => [record.key, record]));
   const defaults = new Map(DEFAULT_CONTENT_LIBRARY.records.map((record) => [record.key, record]));
@@ -26,7 +42,7 @@ function validateLibrary(input) {
     const fallback = defaults.get(key) || null;
     const raw = incoming.get(key) || fallback;
     if (!raw) continue;
-    const merged = fallback ? { ...fallback, ...raw, fields: { ...fallback.fields, ...(raw.fields || {}) } } : raw;
+    const merged = normalizeLegacyContentRecord(raw, fallback);
     const existing = merged.createdAt ? { ...merged, revision: Number(merged.revision || 1) - 1 } : null;
     const clean = validateContentRecord(merged, existing);
     clean.revision = Number(merged.revision || clean.revision || 1);

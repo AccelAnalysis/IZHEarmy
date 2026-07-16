@@ -24,6 +24,6 @@ export default async (request) => {
     return json({ error: 'Select a valid visual editor action.' }, 400);
   } catch (error) {
     console.error('admin-visual-editor', error);
-    return json({ error: error.message || 'The visual editor request could not be completed.' }, error.statusCode || 400);
+    return json({ error: error.message || 'The visual editor request could not be completed.' }, error.statusCode || 500);
   }
 };
