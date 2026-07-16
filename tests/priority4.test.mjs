@@ -7,15 +7,33 @@ import { campaignAccountability, organizationAccountability, validateLedgerEntry
 const now = new Date('2026-07-14T12:00:00.000Z');
 
 test('structured content honors publishing windows and requires dates for scheduled records', () => {
-  const record = validateContentRecord({ key: 'home-hero', status: 'scheduled', publishAt: '2026-07-14T10:00:00.000Z', unpublishAt: '2026-07-15T10:00:00.000Z', fields: { eyebrow: 'Question', question: 'Who is God to you?' } });
+  const record = validateContentRecord({ key: 'home-hero', status: 'scheduled', publishAt: '2026-07-14T10:00:00.000Z', unpublishAt: '2026-07-15T10:00:00.000Z', fields: { eyebrow: 'Question', question: 'Who is God to you?', primaryTarget: '#collection', secondaryTarget: '#story' } });
   assert.equal(contentIsLive(record, now), true);
   assert.equal(contentIsLive({ ...record, publishAt: '2026-07-15T12:00:00.000Z' }, now), false);
   assert.equal(contentIsLive({ ...record, publishAt: '' }, now), false);
-  assert.throws(() => validateContentRecord({ key: 'home-hero', status: 'scheduled', fields: { question: 'Who?' } }), /requires a publication date/);
-  assert.throws(() => validateContentRecord({ key: 'home-hero', status: 'scheduled', publishAt: '2026-07-15T00:00:00Z', unpublishAt: '2026-07-14T00:00:00Z', fields: { question: 'Who?' } }), /later than/);
+  assert.throws(() => validateContentRecord({ key: 'home-hero', status: 'scheduled', fields: { question: 'Who?', primaryTarget: '#collection', secondaryTarget: '#story' } }), /requires a publication date/);
+  assert.throws(() => validateContentRecord({ key: 'home-hero', status: 'scheduled', publishAt: '2026-07-15T00:00:00Z', unpublishAt: '2026-07-14T00:00:00Z', fields: { question: 'Who?', primaryTarget: '#collection', secondaryTarget: '#story' } }), /later than/);
   const library = { revision: 2, records: [record, { ...record, key: 'home-story', status: 'draft' }] };
   assert.equal(Object.keys(publicContent(library, { now }).records).length, 1);
   assert.equal(Object.keys(publicContent(library, { preview: true, now }).records).length, 2);
+});
+
+test('visual layout content only accepts governed presets', () => {
+  const layout = validateContentRecord({
+    key: 'site-layout', status: 'published', fields: {
+      heroVisible: true, heroAlignment: 'center', heroHeight: 'standard', heroOverlay: 'medium', heroFocalPoint: 'right',
+      storyVisible: true, storyOrder: 1, storyAlignment: 'left', storyImagePosition: 'right', storySpacing: 'generous',
+      bookVisible: true, bookOrder: 2, bookAlignment: 'left', bookOverlay: 'strong', bookSpacing: 'standard',
+      collectionVisible: true, collectionOrder: 3, collectionSpacing: 'compact',
+      giveOneVisible: true, giveOneOrder: 4, giveOneAlignment: 'center', giveOneImagePosition: 'left', giveOneSpacing: 'standard',
+      churchVisible: true, churchOrder: 5, churchAlignment: 'left', churchOverlay: 'strong', churchSpacing: 'generous'
+    }
+  });
+  assert.equal(layout.fields.heroAlignment, 'center');
+  assert.equal(layout.fields.storyImagePosition, 'right');
+  assert.equal(layout.fields.collectionSpacing, 'compact');
+  assert.throws(() => validateContentRecord({ key: 'site-layout', fields: { ...layout.fields, heroAlignment: 'absolute-position' } }), /valid hero alignment/);
+  assert.throws(() => validateContentRecord({ key: 'site-layout', fields: { ...layout.fields, storyOrder: 99 } }), /no more than 20/);
 });
 
 test('teaching library validates schedules, relationships, and public access', () => {

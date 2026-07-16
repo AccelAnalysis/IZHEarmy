@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>IZHE Visual Website Editor</title>
+  <style>
+    :root{color-scheme:dark;font-family:Inter,system-ui,sans-serif;background:#020617;color:#f8fafc}*{box-sizing:border-box}body{margin:0;min-width:1100px;overflow:hidden}.toolbar{height:68px;background:#0f172a;border-bottom:1px solid rgba(255,255,255,.1);display:flex;align-items:center;gap:14px;padding:0 18px}.brand{font-weight:900;letter-spacing:.14em}.muted{color:#94a3b8}.button{border:1px solid rgba(255,255,255,.15);background:#111827;color:#fff;border-radius:10px;padding:10px 14px;font-weight:800;cursor:pointer}.button:hover{border-color:#fbbf24}.button.primary{background:#fbbf24;color:#020617;border-color:#fbbf24}.button.danger{color:#fca5a5}.button:disabled{opacity:.45;cursor:not-allowed}.viewport-group{display:flex;gap:6px}.viewport-group .active{background:#fbbf24;color:#020617}.spacer{flex:1}.status{font-size:12px;color:#94a3b8;max-width:300px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.workspace{height:calc(100vh - 68px);display:grid;grid-template-columns:minmax(720px,1fr) 390px}.canvas-wrap{background:#111827;overflow:auto;padding:24px;display:flex;justify-content:center;align-items:flex-start}.canvas{background:white;height:calc(100vh - 116px);width:100%;max-width:1440px;border:0;border-radius:12px;box-shadow:0 30px 90px rgba(0,0,0,.45);transition:width .2s}.canvas.tablet{width:768px}.canvas.mobile{width:390px}.panel{background:#0f172a;border-left:1px solid rgba(255,255,255,.1);overflow:auto;padding:20px}.panel h2{font-size:20px;margin:0 0 6px}.panel h3{font-size:14px;margin:22px 0 8px;text-transform:uppercase;letter-spacing:.08em;color:#fbbf24}.help{font-size:12px;color:#94a3b8;line-height:1.5}.field{width:100%;background:#020617;border:1px solid #334155;color:#fff;border-radius:10px;padding:11px 12px;margin-top:6px}.field:focus{outline:2px solid #fbbf24;border-color:#fbbf24}.label{display:block;font-size:11px;font-weight:800;letter-spacing:.08em;color:#cbd5e1;margin:14px 0 0}.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.media-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:12px}.media-card{border:1px solid rgba(255,255,255,.1);border-radius:10px;overflow:hidden;background:#020617;cursor:pointer}.media-card:hover{border-color:#fbbf24}.media-card img{width:100%;height:88px;object-fit:cover;display:block}.media-card span{display:block;padding:8px;font-size:10px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.notice{border:1px solid rgba(251,191,36,.35);background:rgba(251,191,36,.08);color:#fde68a;border-radius:12px;padding:12px;font-size:12px;line-height:1.5}.error{border-color:rgba(248,113,113,.4);background:rgba(127,29,29,.2);color:#fecaca}.toggle{display:flex;align-items:center;gap:10px;margin-top:14px}.toggle input{width:20px;height:20px;accent-color:#fbbf24}.empty{padding:30px 10px;text-align:center;color:#94a3b8}.upload{border:1px dashed #475569;border-radius:12px;padding:12px;margin-top:12px}.hidden{display:none!important}
+  </style>
+</head>
+<body>
+  <header class="toolbar">
+    <div><div class="brand">IZHE VISUAL EDITOR</div><div class="muted" style="font-size:11px">Protected homepage editing</div></div>
+    <a class="button" href="/admin.html">BACK TO ADMIN</a>
+    <div class="viewport-group" aria-label="Preview width"><button class="button active" data-viewport="desktop">DESKTOP</button><button class="button" data-viewport="tablet">TABLET</button><button class="button" data-viewport="mobile">MOBILE</button></div>
+    <button id="undoButton" class="button" disabled>UNDO</button>
+    <button id="resetButton" class="button" disabled>RESET UNSAVED</button>
+    <div class="spacer"></div>
+    <div id="editorStatus" class="status">Loading editor…</div>
+    <button id="discardButton" class="button danger" disabled>DISCARD DRAFT</button>
+    <button id="saveDraftButton" class="button" disabled>SAVE DRAFT</button>
+    <button id="publishButton" class="button primary" disabled>PUBLISH</button>
+  </header>
+  <main class="workspace">
+    <section class="canvas-wrap"><iframe id="siteFrame" class="canvas" title="Editable IZHE homepage preview"></iframe></section>
+    <aside class="panel">
+      <div id="accessError" class="notice error hidden"></div>
+      <div id="selectionPanel"><div class="empty"><strong>Select text, an image, a button, or a section in the page.</strong><p class="help">The customer-facing site remains protected until you publish.</p></div></div>
+    </aside>
+  </main>
+  <script src="/assets/visual-editor.js" defer></script>
+</body>
+</html>

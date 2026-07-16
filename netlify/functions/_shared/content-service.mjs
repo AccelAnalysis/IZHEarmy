@@ -18,19 +18,23 @@ function validateHistory(input) {
 }
 
 function validateLibrary(input) {
+  const incoming = new Map((input?.records || []).map((record) => [record.key, record]));
+  const defaults = new Map(DEFAULT_CONTENT_LIBRARY.records.map((record) => [record.key, record]));
+  const keys = [...new Set([...defaults.keys(), ...incoming.keys()])];
   const records = [];
-  const seen = new Set();
-  for (const raw of input?.records || []) {
-    if (seen.has(raw.key)) throw new Error(`Duplicate content key: ${raw.key}`);
-    const existing = raw.createdAt ? { ...raw, revision: Number(raw.revision || 1) - 1 } : null;
-    const clean = validateContentRecord(raw, existing);
-    clean.revision = Number(raw.revision || clean.revision || 1);
-    clean.createdAt = raw.createdAt || clean.createdAt;
-    clean.updatedAt = raw.updatedAt || clean.updatedAt;
+  for (const key of keys) {
+    const fallback = defaults.get(key) || null;
+    const raw = incoming.get(key) || fallback;
+    if (!raw) continue;
+    const merged = fallback ? { ...fallback, ...raw, fields: { ...fallback.fields, ...(raw.fields || {}) } } : raw;
+    const existing = merged.createdAt ? { ...merged, revision: Number(merged.revision || 1) - 1 } : null;
+    const clean = validateContentRecord(merged, existing);
+    clean.revision = Number(merged.revision || clean.revision || 1);
+    clean.createdAt = merged.createdAt || clean.createdAt;
+    clean.updatedAt = merged.updatedAt || clean.updatedAt;
     records.push(clean);
-    seen.add(clean.key);
   }
-  return { schemaVersion: 1, revision: Number(input?.revision || 1), updatedAt: input?.updatedAt || new Date().toISOString(), records, history: validateHistory(input?.history) };
+  return { schemaVersion: 2, revision: Number(input?.revision || 1), updatedAt: input?.updatedAt || new Date().toISOString(), records, history: validateHistory(input?.history) };
 }
 
 export async function loadContentLibrary() {
@@ -44,17 +48,30 @@ export async function loadContentLibrary() {
   return { library: validateLibrary(raced?.data || seeded), etag: raced?.etag || null };
 }
 
-export async function saveContentRecord(input, expectedRevision = null) {
+export async function saveContentRecords(inputs, expectedRevision = null) {
   const { library, etag } = await loadContentLibrary();
   if (expectedRevision != null && Number(expectedRevision) !== library.revision) {
     throw Object.assign(new Error('Website content changed in another session. Reload before saving.'), { statusCode: 409 });
   }
-  const existing = library.records.find((record) => record.key === input?.key) || null;
-  const record = validateContentRecord(input, existing);
-  const records = existing ? library.records.map((item) => item.key === record.key ? record : item) : [...library.records, record];
-  const history = existing ? [...library.history, { id: `CONTENT-${record.key}-${Date.now()}`, recordKey: record.key, savedAt: new Date().toISOString(), record: structuredClone(existing) }].slice(-500) : library.history;
-  const next = { ...library, revision: library.revision + 1, updatedAt: new Date().toISOString(), records, history };
+  if (!Array.isArray(inputs) || !inputs.length) throw Object.assign(new Error('Select at least one content record to save.'), { statusCode: 400 });
+  const updates = new Map();
+  const history = [...library.history];
+  for (const input of inputs) {
+    const existing = library.records.find((record) => record.key === input?.key) || null;
+    const record = validateContentRecord(input, existing);
+    if (updates.has(record.key)) throw Object.assign(new Error(`Duplicate content update: ${record.key}`), { statusCode: 400 });
+    if (existing) history.push({ id: `CONTENT-${record.key}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, recordKey: record.key, savedAt: new Date().toISOString(), record: structuredClone(existing) });
+    updates.set(record.key, record);
+  }
+  const records = library.records.map((item) => updates.get(item.key) || item);
+  for (const [key, record] of updates) if (!library.records.some((item) => item.key === key)) records.push(record);
+  const next = { ...library, schemaVersion: 2, revision: library.revision + 1, updatedAt: new Date().toISOString(), records, history: history.slice(-500) };
   const result = await getStore(STORE).setJSON(KEY, next, { onlyIfMatch: etag });
   if (!result.modified) throw Object.assign(new Error('Website content changed in another session. Reload before saving.'), { statusCode: 409 });
-  return { library: next, record, etag: result.etag };
+  return { library: next, records: [...updates.values()], etag: result.etag };
+}
+
+export async function saveContentRecord(input, expectedRevision = null) {
+  const result = await saveContentRecords([input], expectedRevision);
+  return { library: result.library, record: result.records[0], etag: result.etag };
 }
