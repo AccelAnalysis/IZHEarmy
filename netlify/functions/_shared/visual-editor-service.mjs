@@ -1,20 +1,9 @@
 import { getStore } from '@netlify/blobs';
 import { CONTENT_SCHEMAS, loadContentLibrary, saveContentRecords, validateContentRecord } from './content-service.mjs';
+import { listMedia } from './media-service.mjs';
 
 const DRAFT_STORE = 'izhe-visual-drafts';
 const DRAFT_KEY = 'homepage';
-
-async function listMedia() {
-  const store = getStore('izhe-media');
-  const result = await store.list();
-  const media = [];
-  for (const blob of result.blobs || []) {
-    const entry = await store.getMetadata(blob.key, { consistency: 'strong' }).catch(() => null);
-    if (!entry?.metadata) continue;
-    media.push({ id: blob.key, url: `/.netlify/functions/media?id=${encodeURIComponent(blob.key)}`, ...entry.metadata });
-  }
-  return media.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
-}
 
 function mergeWorkingRecords(library, draft) {
   const changes = new Map((draft?.changes || []).map((change) => [change.key, change]));
