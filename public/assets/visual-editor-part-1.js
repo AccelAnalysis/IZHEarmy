@@ -132,7 +132,8 @@ function renderFieldSelection(selection) {
   const definition = data.schemas?.[selection.key]?.fields?.[selection.field] || { label: selection.label, type: selection.kind === 'image' || selection.kind === 'background' ? 'url' : 'text' };
   const value = record?.fields?.[selection.field] ?? '';
   const isImage = ['image','background'].includes(selection.kind) || definition.type === 'url' && /image|background|cover|thumbnail/i.test(selection.field);
-  panel.innerHTML = `<h2>${escapeHtml(selection.label || definition.label)}</h2><p class="help">Editing ${escapeHtml(data.schemas?.[selection.key]?.label || selection.key)}. Changes appear immediately in this protected preview.</p><label class="label">${escapeHtml(definition.label.toUpperCase())}</label>${inputMarkup(definition, value)}${selection.targetField ? `<label class="label">BUTTON DESTINATION</label>${inputMarkup(data.schemas[selection.key].fields[selection.targetField], record.fields[selection.targetField] || '', 'selectedTarget')}` : ''}${isImage ? imageTools(selection.key, selection.field, value) : ''}`;
+  const companionMarkup = isImage && typeof imageCompanionTools === 'function' ? imageCompanionTools(selection, record) : '';
+  panel.innerHTML = `<h2>${escapeHtml(selection.label || definition.label)}</h2><p class="help">Editing ${escapeHtml(data.schemas?.[selection.key]?.label || selection.key)}. Changes appear immediately in this protected preview.</p><label class="label">${escapeHtml(definition.label.toUpperCase())}</label>${inputMarkup(definition, value)}${selection.targetField ? `<label class="label">BUTTON DESTINATION</label>${inputMarkup(data.schemas[selection.key].fields[selection.targetField], record.fields[selection.targetField] || '', 'selectedTarget')}` : ''}${companionMarkup}${isImage ? imageTools(selection.key, selection.field, value) : ''}`;
   bindValueInput(selection.key, selection.field, definition);
   if (selection.targetField) {
     const target = document.getElementById('selectedTarget');
@@ -140,5 +141,8 @@ function renderFieldSelection(selection) {
     target.addEventListener('focus', () => { targetSnapshot = false; });
     target.addEventListener('input', () => { updateField(selection.key, selection.targetField, target.value, { snapshot: !targetSnapshot }); targetSnapshot = true; });
   }
-  if (isImage) bindImageTools(selection.key, selection.field);
+  if (isImage) {
+    bindImageTools(selection);
+    if (typeof bindImageCompanionTools === 'function') bindImageCompanionTools(selection);
+  }
 }
