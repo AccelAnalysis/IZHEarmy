@@ -1,6 +1,7 @@
 import { getStore } from '@netlify/blobs';
 import { SOURCE_MEDIA_LIBRARY } from './source-media-library.mjs';
 import { validateMediaMetadata } from './media-rules.mjs';
+import { applySourceMediaPolicy } from './site-media-policy.mjs';
 
 const BINARY_STORE = 'izhe-media';
 const RECORD_STORE = 'izhe-media-records';
@@ -23,11 +24,17 @@ async function uploadedBase(id) {
   return { id, url: mediaUrl(id), static: false, ...entry.metadata };
 }
 
+function mergeMedia(base, overlay) {
+  if (base?.static) return applySourceMediaPolicy(base, overlay);
+  return { ...base, ...(overlay || {}) };
+}
+
 export async function getMediaItem(id) {
   const base = staticBase(id) || await uploadedBase(id);
   if (!base) return null;
   const overlay = await overlayFor(id);
-  return { ...base, ...(overlay || {}), id: base.id, url: base.url, static: Boolean(base.static) };
+  const merged = mergeMedia(base, overlay);
+  return { ...merged, id: base.id, url: base.url, static: Boolean(base.static) };
 }
 
 export async function listMedia({ includeArchived = true } = {}) {
@@ -43,7 +50,7 @@ export async function listMedia({ includeArchived = true } = {}) {
   const rows = [];
   for (const item of combined) {
     const overlay = await overlayFor(item.id);
-    const merged = { ...item, ...(overlay || {}), id: item.id, url: item.url, static: Boolean(item.static) };
+    const merged = { ...mergeMedia(item, overlay), id: item.id, url: item.url, static: Boolean(item.static) };
     if (includeArchived || merged.usageStatus !== 'archived') rows.push(merged);
   }
   return rows.sort((a, b) => {
@@ -57,13 +64,13 @@ export async function listMedia({ includeArchived = true } = {}) {
 export async function saveMediaMetadata(id, input) {
   const existing = await getMediaItem(id);
   if (!existing) throw Object.assign(new Error('The selected media asset no longer exists.'), { statusCode: 404 });
-  const record = validateMediaMetadata(input, existing);
+  const record = { ...validateMediaMetadata(input, existing), reviewSource: 'manual' };
   await getStore(RECORD_STORE).setJSON(id, record);
   return { ...existing, ...record, id: existing.id, url: existing.url, static: Boolean(existing.static) };
 }
 
 export async function createUploadedMediaRecord(id, input) {
-  const record = validateMediaMetadata(input);
+  const record = { ...validateMediaMetadata(input), reviewSource: 'upload' };
   await getStore(RECORD_STORE).setJSON(id, record);
   return record;
 }
