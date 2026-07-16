@@ -18,7 +18,8 @@
     const siteReady = all.filter(allowedForSite).length;
     const editorialOnly = all.filter((media) => allowedForSite(media) && !accurateForProduct(media)).length;
     const summary = $('#mediaFilterSummary');
-    if (summary) summary.textContent = `${siteReady} approved for website selection${editorialOnly ? ` · ${editorialOnly} editorial-only apparel assets` : ''}. Recognizable-person media remains unavailable until releases are recorded.`;
+    const summaryText = `${siteReady} approved for website selection${editorialOnly ? ` · ${editorialOnly} editorial-only apparel assets` : ''}. Recognizable-person media remains unavailable until releases are recorded.`;
+    if (summary && summary.textContent !== summaryText) summary.textContent = summaryText;
     $$('[data-use-global-media]').forEach((button) => {
       const media = mediaById(button.dataset.useGlobalMedia);
       const allowed = accurateForProduct(media);
