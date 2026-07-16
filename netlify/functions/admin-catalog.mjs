@@ -1,23 +1,7 @@
-import { getStore } from '@netlify/blobs';
 import { requireAdmin } from './_shared/admin-auth.mjs';
 import { loadCatalog, publicCatalog } from './_shared/catalog-service.mjs';
 import { json, methodNotAllowed } from './_shared/http.mjs';
-
-async function listMedia() {
-  const store = getStore('izhe-media');
-  const result = await store.list();
-  const media = [];
-  for (const blob of result.blobs || []) {
-    const entry = await store.getMetadata(blob.key, { consistency: 'strong' }).catch(() => null);
-    if (!entry?.metadata) continue;
-    media.push({
-      id: blob.key,
-      url: `/.netlify/functions/media?id=${encodeURIComponent(blob.key)}`,
-      ...entry.metadata
-    });
-  }
-  return media.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
-}
+import { listMedia } from './_shared/media-service.mjs';
 
 export default async (request) => {
   if (request.method !== 'GET') return methodNotAllowed(['GET']);
