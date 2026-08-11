@@ -44,7 +44,10 @@ export function normalizeChurchBatch(input = {}, { startAt = '', endAt = '' } = 
     if (pickupStartAt && new Date(pickupStartAt) < orderingStart) errors.push('Pickup-window start cannot precede the campaign ordering start.');
     if (pickupEndAt && new Date(pickupEndAt) < orderingStart) errors.push('Pickup-window end cannot precede the campaign ordering start.');
   }
-  if (orderingEnd && !Number.isNaN(orderingEnd.valueOf()) && pickupEndAt && new Date(pickupEndAt) < orderingEnd) errors.push('Pickup-window end cannot occur before the campaign ordering period ends.');
+  if (orderingEnd && !Number.isNaN(orderingEnd.valueOf())) {
+    if (pickupStartAt && new Date(pickupStartAt) < orderingEnd) errors.push('Pickup-window start cannot occur before the campaign ordering period ends.');
+    if (pickupEndAt && new Date(pickupEndAt) < orderingEnd) errors.push('Pickup-window end cannot occur before the campaign ordering period ends.');
+  }
   return { value: result, errors };
 }
 
