@@ -1,4 +1,5 @@
 # Production environment and Stripe webhook cutover validated 2026-08-11.
+# Admin v2 route-specific security headers are maintained in public/_headers.
 [build]
   publish = "public"
   functions = "netlify/functions"
@@ -24,6 +25,23 @@
   for = "/assets/*"
   [headers.values]
     Cache-Control = "public, max-age=300, must-revalidate"
+
+[[redirects]]
+  from = "/admin.html"
+  to = "/admin/"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "/visual-editor.html"
+  to = "/admin/content/visual-editor"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "/admin/*"
+  to = "/admin/index.html"
+  status = 200
 
 [[redirects]]
   from = "/campaign/:slug"
