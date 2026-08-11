@@ -1,3 +1,4 @@
+# Production environment cutover validated 2026-08-11.
 [build]
   publish = "public"
   functions = "netlify/functions"
