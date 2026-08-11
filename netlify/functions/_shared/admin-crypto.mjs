@@ -8,13 +8,19 @@ export function randomToken(bytes = 32) {
   return randomBytes(bytes).toString('base64url');
 }
 
+function cryptographicInput(value) {
+  if (Buffer.isBuffer(value) || value instanceof Uint8Array) return value;
+  if (value instanceof ArrayBuffer) return Buffer.from(value);
+  return String(value);
+}
+
 export function sha256(value, encoding = 'base64url') {
-  return createHash('sha256').update(String(value)).digest(encoding);
+  return createHash('sha256').update(cryptographicInput(value)).digest(encoding);
 }
 
 export function hmac256(secret, value, encoding = 'base64url') {
   if (!secret) throw new Error('A signing secret is required.');
-  return createHmac('sha256', secret).update(String(value)).digest(encoding);
+  return createHmac('sha256', secret).update(cryptographicInput(value)).digest(encoding);
 }
 
 export function safeEqual(left, right) {
