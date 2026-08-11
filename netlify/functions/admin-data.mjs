@@ -1,11 +1,6 @@
 import { getStore } from '@netlify/blobs';
 import { requireAdmin } from './_shared/admin-auth.mjs';
-import {
-  computeOperationalAlerts,
-  effectiveCodeStatus,
-  filterRecords,
-  summarizeOperations
-} from './_shared/operations-rules.mjs';
+import { computeOperationalAlerts, effectiveCodeStatus, filterRecords, summarizeOperations } from './_shared/operations-rules.mjs';
 import { json, methodNotAllowed } from './_shared/http.mjs';
 
 async function listJSON(storeName, limit = 2000) {
@@ -31,36 +26,25 @@ export default async (request) => {
   if (denied) return denied;
   try {
     const url = new URL(request.url);
-    const filters = {
-      q: url.searchParams.get('q') || '',
-      from: url.searchParams.get('from') || '',
-      to: url.searchParams.get('to') || ''
-    };
+    const filters = { q: url.searchParams.get('q') || '', from: url.searchParams.get('from') || '', to: url.searchParams.get('to') || '' };
+    const campaignId = url.searchParams.get('campaignId') || '';
+    const pickupStatus = url.searchParams.get('pickupStatus') || '';
     const [orders, redemptions, codes, batches] = await Promise.all([
-      listJSON('izhe-orders'),
-      listJSON('izhe-redemptions'),
-      listJSON('izhe-give-codes'),
-      listJSON('izhe-production-batches')
+      listJSON('izhe-orders'), listJSON('izhe-redemptions'), listJSON('izhe-give-codes'), listJSON('izhe-production-batches')
     ]);
     const all = { orders, redemptions, codes, batches };
+    let filteredOrders = filterRecords(orders, { ...filters, status: url.searchParams.get('orderStatus') || '' });
+    if (campaignId) filteredOrders = filteredOrders.filter((order) => order.campaignId === campaignId);
+    if (pickupStatus) filteredOrders = filteredOrders.filter((order) => order.fulfillment?.mode === 'church_batch' && (order.fulfillment?.status || order.status) === pickupStatus);
     const filtered = {
-      orders: newestFirst(filterRecords(orders, { ...filters, status: url.searchParams.get('orderStatus') || '' })),
+      orders: newestFirst(filteredOrders),
       redemptions: newestFirst(filterRecords(redemptions, { ...filters, status: url.searchParams.get('redemptionStatus') || '' })),
-      codes: newestFirst(filterRecords(codes, {
-        ...filters,
-        status: url.searchParams.get('codeStatus') || '',
-        statusResolver: effectiveCodeStatus
-      })).map((code) => ({ ...code, effectiveStatus: effectiveCodeStatus(code) })),
+      codes: newestFirst(filterRecords(codes, { ...filters, status: url.searchParams.get('codeStatus') || '', statusResolver: effectiveCodeStatus })).map((code) => ({ ...code, effectiveStatus: effectiveCodeStatus(code) })),
       batches: newestFirst(filterRecords(batches, { ...filters, status: url.searchParams.get('batchStatus') || '' }))
     };
     return json({
       ...filtered,
-      totals: {
-        orders: orders.length,
-        redemptions: redemptions.length,
-        codes: codes.length,
-        batches: batches.length
-      },
+      totals: { orders: orders.length, redemptions: redemptions.length, codes: codes.length, batches: batches.length },
       summary: summarizeOperations(all),
       alerts: computeOperationalAlerts(all),
       generatedAt: new Date().toISOString()
