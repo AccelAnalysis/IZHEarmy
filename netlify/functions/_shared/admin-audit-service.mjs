@@ -22,15 +22,15 @@ function signingSecret() {
   return secret;
 }
 
-function eventKey(timestamp, eventId) {
+function eventKey(timestamp, eventId, sequence) {
   const date = new Date(timestamp);
   const day = Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 10).replaceAll('-', '/') : 'invalid';
-  return `${EVENT_PREFIX}${day}/${timestamp.replace(/[:.]/g, '-')}_${eventId}.json`;
+  return `${EVENT_PREFIX}${day}/${String(sequence).padStart(16, '0')}_${timestamp.replace(/[:.]/g, '-')}_${eventId}.json`;
 }
 
 async function acquireLock() {
   const owner = randomToken(18);
-  for (let attempt = 0; attempt < 12; attempt += 1) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
     const now = Date.now();
     const lock = { owner, acquiredAt: new Date(now).toISOString(), expiresAt: new Date(now + 10_000).toISOString() };
     const created = await store().setJSON(LOCK_KEY, lock, { onlyIfNew: true });
@@ -41,7 +41,7 @@ async function acquireLock() {
       const replaced = await store().setJSON(LOCK_KEY, lock, { onlyIfMatch: current.etag });
       if (replaced.modified) return lock;
     }
-    await sleep(25 + attempt * 20);
+    await sleep(25 + attempt * 15);
   }
   throw Object.assign(new Error('Audit history is temporarily busy.'), { statusCode: 503 });
 }
@@ -49,11 +49,11 @@ async function acquireLock() {
 async function releaseLock(lock) {
   const current = await store().getWithMetadata(LOCK_KEY, { type: 'json', consistency: 'strong' }).catch(() => null);
   if (current?.data?.owner !== lock.owner) return;
-  try {
-    await store().delete(LOCK_KEY);
-  } catch {
-    await store().setJSON(LOCK_KEY, { ...current.data, expiresAt: new Date(0).toISOString() }, { onlyIfMatch: current.etag }).catch(() => null);
-  }
+  await store().setJSON(LOCK_KEY, {
+    ...current.data,
+    releasedAt: new Date().toISOString(),
+    expiresAt: new Date(0).toISOString()
+  }, { onlyIfMatch: current.etag }).catch(() => null);
 }
 
 function actorFrom(context) {
@@ -82,11 +82,13 @@ export async function appendAdminAuditEvent({
   try {
     const headEntry = await store().getWithMetadata(HEAD_KEY, { type: 'json', consistency: 'strong' }).catch(() => null);
     const previousEventHash = headEntry?.data?.eventHash || null;
+    const sequence = Math.max(0, Number(headEntry?.data?.sequence || 0)) + 1;
     const timestamp = new Date().toISOString();
     const eventId = `audit_${randomToken(18)}`;
     const safeSessionReference = context?.sessionHash ? sha256(context.sessionHash).slice(0, 24) : null;
     const eventWithoutHash = {
       eventId,
+      sequence,
       timestamp,
       requestId: requestId || null,
       ...actorFrom(context),
@@ -105,9 +107,9 @@ export async function appendAdminAuditEvent({
     };
     const eventHash = hmac256(signingSecret(), canonicalJson(eventWithoutHash));
     const event = { ...eventWithoutHash, eventHash };
-    const created = await store().setJSON(eventKey(timestamp, eventId), event, { onlyIfNew: true });
+    const created = await store().setJSON(eventKey(timestamp, eventId, sequence), event, { onlyIfNew: true });
     if (!created.modified) throw new Error('Audit event ID collision.');
-    const head = { eventId, eventHash, timestamp };
+    const head = { eventId, eventHash, timestamp, sequence };
     const updatedHead = headEntry?.etag
       ? await store().setJSON(HEAD_KEY, head, { onlyIfMatch: headEntry.etag })
       : await store().setJSON(HEAD_KEY, head, { onlyIfNew: true });
@@ -134,31 +136,48 @@ export async function auditDenied(request, requestId, context, action, reason, m
   });
 }
 
+async function allAuditEvents() {
+  const listed = await store().list({ prefix: EVENT_PREFIX });
+  const rows = [];
+  for (const blob of listed.blobs || []) {
+    const event = await store().get(blob.key, { type: 'json', consistency: 'strong' }).catch(() => null);
+    if (event?.eventId) rows.push(event);
+  }
+  return rows;
+}
+
 export async function listAdminAuditEvents({
   dateFrom = '',
   dateTo = '',
   actorUserId = '',
   action = '',
   resourceType = '',
+  resourceId = '',
   result = '',
+  beforeSequence = null,
   limit = 50
 } = {}) {
   const boundedLimit = Math.min(200, Math.max(1, Number(limit || 50)));
-  const listed = await store().list({ prefix: EVENT_PREFIX });
   const rows = [];
-  for (const blob of listed.blobs || []) {
-    const event = await store().get(blob.key, { type: 'json', consistency: 'strong' }).catch(() => null);
-    if (!event?.eventId) continue;
+  for (const event of await allAuditEvents()) {
     if (dateFrom && event.timestamp < dateFrom) continue;
     if (dateTo && event.timestamp > dateTo) continue;
     if (actorUserId && event.actorUserId !== actorUserId) continue;
     if (action && !String(event.action).includes(action)) continue;
     if (resourceType && event.resourceType !== resourceType) continue;
+    if (resourceId && event.resourceId !== resourceId) continue;
     if (result && event.result !== result) continue;
+    if (beforeSequence && Number(event.sequence || 0) >= Number(beforeSequence)) continue;
     rows.push(event);
   }
-  rows.sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)));
-  return { items: rows.slice(0, boundedLimit), hasMore: rows.length > boundedLimit };
+  rows.sort((a, b) => Number(b.sequence || 0) - Number(a.sequence || 0));
+  const items = rows.slice(0, boundedLimit);
+  const hasMore = rows.length > boundedLimit;
+  return {
+    items,
+    hasMore,
+    nextCursor: hasMore && items.length ? String(items.at(-1).sequence) : null
+  };
 }
 
 export function verifyAuditEvent(event) {
@@ -168,27 +187,28 @@ export function verifyAuditEvent(event) {
 }
 
 export async function verifyAdminAuditChain() {
-  const listed = await store().list({ prefix: EVENT_PREFIX });
-  const events = [];
-  for (const blob of listed.blobs || []) {
-    const event = await store().get(blob.key, { type: 'json', consistency: 'strong' }).catch(() => null);
-    if (event?.eventId) events.push(event);
-  }
-  events.sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)) || String(a.eventId).localeCompare(String(b.eventId)));
+  const events = await allAuditEvents();
+  events.sort((a, b) => Number(a.sequence || 0) - Number(b.sequence || 0));
   let previous = null;
+  let expectedSequence = 1;
   const failures = [];
   for (const event of events) {
     if (!verifyAuditEvent(event)) failures.push({ eventId: event.eventId, reason: 'invalid_hmac' });
+    if (Number(event.sequence || 0) !== expectedSequence) failures.push({ eventId: event.eventId, reason: 'invalid_sequence' });
     if (event.previousEventHash !== previous) failures.push({ eventId: event.eventId, reason: 'broken_chain' });
     previous = event.eventHash;
+    expectedSequence += 1;
   }
   const head = await store().get(HEAD_KEY, { type: 'json', consistency: 'strong' }).catch(() => null);
-  if (events.length && head?.eventHash !== previous) failures.push({ eventId: head?.eventId || null, reason: 'head_mismatch' });
+  if (events.length && (head?.eventHash !== previous || Number(head?.sequence || 0) !== events.at(-1).sequence)) {
+    failures.push({ eventId: head?.eventId || null, reason: 'head_mismatch' });
+  }
   return {
     valid: failures.length === 0,
     checkedAt: new Date().toISOString(),
     eventCount: events.length,
     headEventId: head?.eventId || null,
+    headSequence: Number(head?.sequence || 0),
     failures
   };
 }
