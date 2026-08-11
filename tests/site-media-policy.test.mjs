@@ -63,6 +63,6 @@ test('manual review overrides automatic source policy', () => {
   assert.equal(result.rightsStatus, 'restricted');
 });
 
-test('eleven source assets are processed as site-ready', () => {
-  assert.equal(siteReadySourceIds().length, 11);
+test('seventeen source assets are processed as site-ready', () => {
+  assert.equal(siteReadySourceIds().length, 17);
 });
