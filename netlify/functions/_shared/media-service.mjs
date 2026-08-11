@@ -1,10 +1,12 @@
 import { getStore } from '@netlify/blobs';
 import { SOURCE_MEDIA_LIBRARY } from './source-media-library.mjs';
+import { NAMES_OF_GOD_SOURCE_MEDIA_LIBRARY } from './names-of-god-source-media-library.mjs';
 import { validateMediaMetadata } from './media-rules.mjs';
 import { applySourceMediaPolicy } from './site-media-policy.mjs';
 
 const BINARY_STORE = 'izhe-media';
 const RECORD_STORE = 'izhe-media-records';
+const STATIC_SOURCE_MEDIA_LIBRARY = [...SOURCE_MEDIA_LIBRARY, ...NAMES_OF_GOD_SOURCE_MEDIA_LIBRARY];
 
 export function mediaUrl(id) {
   return `/.netlify/functions/media?id=${encodeURIComponent(id)}`;
@@ -15,7 +17,7 @@ async function overlayFor(id) {
 }
 
 function staticBase(id) {
-  return SOURCE_MEDIA_LIBRARY.find((item) => item.id === id) || null;
+  return STATIC_SOURCE_MEDIA_LIBRARY.find((item) => item.id === id) || null;
 }
 
 async function uploadedBase(id) {
@@ -46,7 +48,7 @@ export async function listMedia({ includeArchived = true } = {}) {
     if (!entry?.metadata) continue;
     uploaded.push({ id: blob.key, url: mediaUrl(blob.key), static: false, ...entry.metadata });
   }
-  const combined = [...SOURCE_MEDIA_LIBRARY, ...uploaded];
+  const combined = [...STATIC_SOURCE_MEDIA_LIBRARY, ...uploaded];
   const rows = [];
   for (const item of combined) {
     const overlay = await overlayFor(item.id);
