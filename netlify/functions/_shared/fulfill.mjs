@@ -4,7 +4,7 @@ import { checkoutSessionTotals, legacyFulfillmentSnapshot, stablePickupCode } fr
 import { buildLineSettlements, canonicalPaymentFromCheckout, supportForOrder } from './payment-rules.mjs';
 import { acquireOrderWorkflow, completeOrderWorkflow, failOrderWorkflow, updateOrderWorkflow } from './order-workflow-service.mjs';
 import { ensureGiveOneObligations } from './give-one-service.mjs';
-import { createReconciliationTask, ensurePaymentIndexes, proposeStripeReconciliation, retrieveStripePaymentFacts } from './payment-service.mjs';
+import { createReconciliationTask, ensurePaymentIndexes, proposeStripeReconciliation, resolveReconciliationTask, retrieveStripePaymentFacts } from './payment-service.mjs';
 
 async function resolveDraft(session, existingOrder = null) {
   const draftId = session.metadata?.draftId || existingOrder?.checkoutDraftId || '';
@@ -253,6 +253,7 @@ export async function fulfillPaidSession(stripe, incomingSession, { eventId = ''
 
     if (draft.draftId) await getStore('izhe-checkout-drafts').delete(draft.draftId).catch(() => {});
     await completeOrderWorkflow(sessionId, owner, { orderId: sessionId, eventId, lastStripeEventAt: eventCreatedAt || new Date().toISOString() });
+    if (eventId) await resolveReconciliationTask(`paid_order_workflow_failed:${sessionId}:${eventId}`, 'Paid-order workflow resumed and completed successfully.').catch(() => {});
     return reconciled;
   } catch (error) {
     await failOrderWorkflow(sessionId, owner, error).catch(() => {});
