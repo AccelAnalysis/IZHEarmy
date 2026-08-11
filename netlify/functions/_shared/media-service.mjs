@@ -1,12 +1,15 @@
 import { getStore } from '@netlify/blobs';
 import { SOURCE_MEDIA_LIBRARY } from './source-media-library.mjs';
-import { NAMES_OF_GOD_SOURCE_MEDIA_LIBRARY } from './names-of-god-source-media-library.mjs';
+import { NAMES_OF_GOD_SOURCE_MEDIA_LIBRARY, applyNamesOfGodSourceMediaMetadata } from './names-of-god-source-media-library.mjs';
 import { validateMediaMetadata } from './media-rules.mjs';
 import { applySourceMediaPolicy } from './site-media-policy.mjs';
 
 const BINARY_STORE = 'izhe-media';
 const RECORD_STORE = 'izhe-media-records';
-const STATIC_SOURCE_MEDIA_LIBRARY = [...SOURCE_MEDIA_LIBRARY, ...NAMES_OF_GOD_SOURCE_MEDIA_LIBRARY];
+const STATIC_SOURCE_MEDIA_LIBRARY = [
+  ...SOURCE_MEDIA_LIBRARY.map(applyNamesOfGodSourceMediaMetadata),
+  ...NAMES_OF_GOD_SOURCE_MEDIA_LIBRARY
+];
 
 export function mediaUrl(id) {
   return `/.netlify/functions/media?id=${encodeURIComponent(id)}`;
