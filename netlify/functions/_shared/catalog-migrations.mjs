@@ -1,4 +1,5 @@
 export const STAPLE_PLACEHOLDER_MIGRATION_ID = '2026-08-10-staple-collection-placeholders-v1';
+export const SUPPORT_ELIGIBILITY_MIGRATION_ID = '2026-08-11-explicit-support-eligibility-v1';
 
 export const STAPLE_PLACEHOLDER_PRODUCTS = Object.freeze([
   { key: 'is_he_to_you_what_he_is_to_me', skuCode: 'IS-HE-TO-YOU', name: 'Is He to you what He is to me' },
@@ -56,6 +57,7 @@ function placeholderRecord(definition, collection, displayOrder, now) {
     unitAmount: 3700,
     currency: 'usd',
     lookupKey: `izhe_${collectionToken.replaceAll('-', '_')}_${definition.key}_placeholder_usd`,
+    supportEligible: true,
     giveOneEligible: true,
     giveOneUnitsPerPaidUnit: 1,
     status: 'draft',
@@ -77,17 +79,50 @@ function matchesPlaceholder(product, collectionId, definition, expected) {
   return [product.name, product.shortName, product.message].some((value) => normalizeKey(value) === expectedName);
 }
 
+function migrateSupportEligibility(catalog, appliedMigrations) {
+  if (appliedMigrations.includes(SUPPORT_ELIGIBILITY_MIGRATION_ID)) return { catalog, changed: false, applied: [] };
+  let changed = false;
+  const products = (catalog.products || []).map((product) => {
+    if (typeof product.supportEligible === 'boolean') return product;
+    changed = true;
+    return {
+      ...product,
+      // Bounded rule for the existing catalogue: currently approved apparel that already carries
+      // the Give One shirt promise is support eligible. Books and all other products default false.
+      supportEligible: product.productType === 'apparel' && Boolean(product.giveOneEligible)
+    };
+  });
+  return {
+    catalog: {
+      ...catalog,
+      products,
+      appliedMigrations: [...appliedMigrations, SUPPORT_ELIGIBILITY_MIGRATION_ID]
+    },
+    changed: true,
+    applied: [SUPPORT_ELIGIBILITY_MIGRATION_ID]
+  };
+}
+
 export function applyCatalogMigrations(inputCatalog, { now = new Date().toISOString() } = {}) {
-  const catalog = inputCatalog || {};
-  const appliedMigrations = Array.isArray(catalog.appliedMigrations)
-    ? [...new Set(catalog.appliedMigrations.map((value) => String(value).trim()).filter(Boolean))]
+  const input = inputCatalog || {};
+  const initialApplied = Array.isArray(input.appliedMigrations)
+    ? [...new Set(input.appliedMigrations.map((value) => String(value).trim()).filter(Boolean))]
     : [];
+
+  const support = migrateSupportEligibility({ ...input, appliedMigrations: initialApplied }, initialApplied);
+  let catalog = support.catalog;
+  let changed = support.changed;
+  const applied = [...support.applied];
+  const addedProductIds = [];
+  const conflicts = [];
+  const appliedMigrations = Array.isArray(catalog.appliedMigrations) ? [...catalog.appliedMigrations] : [];
+
   if (appliedMigrations.includes(STAPLE_PLACEHOLDER_MIGRATION_ID)) {
-    return { catalog, changed: false, applied: [], addedProductIds: [], conflicts: [] };
+    return { catalog, changed, applied, addedProductIds, conflicts };
   }
 
   const collection = findStapleCollection(catalog);
-  if (!collection) return { catalog, changed: false, applied: [], addedProductIds: [], conflicts: [] };
+  if (!collection) return { catalog, changed, applied, addedProductIds, conflicts };
 
   const products = Array.isArray(catalog.products) ? catalog.products : [];
   const productIds = new Set(products.map((product) => product.id));
@@ -95,7 +130,6 @@ export function applyCatalogMigrations(inputCatalog, { now = new Date().toISOStr
   const targetProducts = products.filter((product) => product.collectionId === collection.id);
   let displayOrder = Math.max(0, ...targetProducts.map((product) => Number(product.displayOrder || 0)));
   const additions = [];
-  const conflicts = [];
 
   for (const definition of STAPLE_PLACEHOLDER_PRODUCTS) {
     const expected = placeholderRecord(definition, collection, displayOrder + 1, now);
@@ -111,19 +145,16 @@ export function applyCatalogMigrations(inputCatalog, { now = new Date().toISOStr
     lookupKeys.add(expected.lookupKey);
   }
 
-  if (conflicts.length) {
-    return { catalog, changed: false, applied: [], addedProductIds: [], conflicts };
-  }
+  if (conflicts.length) return { catalog: input, changed: false, applied: [], addedProductIds: [], conflicts };
 
-  return {
-    catalog: {
-      ...catalog,
-      appliedMigrations: [...appliedMigrations, STAPLE_PLACEHOLDER_MIGRATION_ID],
-      products: [...products, ...additions]
-    },
-    changed: true,
-    applied: [STAPLE_PLACEHOLDER_MIGRATION_ID],
-    addedProductIds: additions.map((product) => product.id),
-    conflicts: []
+  catalog = {
+    ...catalog,
+    appliedMigrations: [...appliedMigrations, STAPLE_PLACEHOLDER_MIGRATION_ID],
+    products: [...products, ...additions]
   };
+  changed = true;
+  applied.push(STAPLE_PLACEHOLDER_MIGRATION_ID);
+  addedProductIds.push(...additions.map((product) => product.id));
+
+  return { catalog, changed, applied, addedProductIds, conflicts };
 }
