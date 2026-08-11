@@ -1,12 +1,10 @@
 import { getStore } from '@netlify/blobs';
 import { requireAdmin } from './_shared/admin-auth.mjs';
 import { findCampaignById } from './_shared/campaign-service.mjs';
-import {
-  appendStatusHistory,
-  BATCH_STATUSES,
-  batchProductionSummary,
-  createBatchId
-} from './_shared/operations-rules.mjs';
+import { appendStatusHistory, BATCH_STATUSES, batchProductionSummary, createBatchId } from './_shared/operations-rules.mjs';
+import { churchBatchReadiness } from './_shared/fulfillment-rules.mjs';
+import { pickupDestinationSnapshot } from './_shared/church-batch-rules.mjs';
+import { syncBatchSources } from './_shared/batch-sync.mjs';
 import { cleanText, json, methodNotAllowed } from './_shared/http.mjs';
 
 function cleanItems(items) {
@@ -37,82 +35,6 @@ function cleanItems(items) {
   }).filter(Boolean);
 }
 
-function sourceStatus(batchStatus) {
-  if (batchStatus === 'ready' || batchStatus === 'submitted') return 'allocated';
-  if (batchStatus === 'in_production') return 'in_production';
-  if (batchStatus === 'received' || batchStatus === 'completed') return 'ready_to_ship';
-  return null;
-}
-
-async function syncRedemption(item, batch, remove = false) {
-  const store = getStore('izhe-redemptions');
-  const entry = await store.getWithMetadata(item.sourceId, { type: 'json', consistency: 'strong' });
-  if (!entry) return;
-  if (remove && entry.data.batchId !== batch.id) return;
-  const resetStatuses = new Set(['allocated', 'in_production', 'ready_to_ship']);
-  const status = remove ? (resetStatuses.has(entry.data.status) ? 'approved' : entry.data.status) : sourceStatus(batch.status) || entry.data.status;
-  const updated = {
-    ...entry.data,
-    batchId: remove ? '' : batch.id,
-    status,
-    statusHistory: status !== entry.data.status
-      ? appendStatusHistory(entry.data, status, remove ? `Removed from ${batch.id}` : `Production batch ${batch.id}`)
-      : entry.data.statusHistory,
-    updatedAt: new Date().toISOString()
-  };
-  await store.setJSON(item.sourceId, updated, { onlyIfMatch: entry.etag });
-}
-
-async function syncOrder(item, batch, remove = false) {
-  const store = getStore('izhe-orders');
-  const entry = await store.getWithMetadata(item.sourceId, { type: 'json', consistency: 'strong' });
-  if (!entry) return;
-  const assignments = Array.isArray(entry.data.batchAssignments) ? [...entry.data.batchAssignments] : [];
-  const remaining = assignments.filter((assignment) => assignment.sourceItemId !== item.sourceItemId);
-  if (!remove) remaining.push({ batchId: batch.id, batchStatus: batch.status, sourceItemId: item.sourceItemId, itemIndex: item.itemIndex, quantity: item.quantity, campaignId: batch.campaignId || '' });
-  const totalItems = Math.max(1, (entry.data.items || []).length);
-  const assignedIndexes = new Set(remaining.map((assignment) => assignment.itemIndex).filter((value) => value != null));
-  const allAssigned = assignedIndexes.size >= totalItems;
-  const statuses = remaining.map((assignment) => assignment.batchStatus || 'ready');
-  let status = entry.data.status;
-  if (remaining.length === 0) {
-    if (['allocated', 'in_production', 'ready_to_ship'].includes(status)) status = 'processing';
-  } else if (allAssigned && statuses.every((value) => ['received', 'completed'].includes(value))) {
-    status = 'ready_to_ship';
-  } else if (statuses.some((value) => value === 'in_production') || statuses.some((value) => ['received', 'completed'].includes(value))) {
-    status = 'in_production';
-  } else if (allAssigned && statuses.every((value) => ['ready', 'submitted'].includes(value))) {
-    status = 'allocated';
-  } else {
-    status = 'processing';
-  }
-  const updated = {
-    ...entry.data,
-    batchAssignments: remaining,
-    batchId: remaining.length === 1 ? remaining[0].batchId : '',
-    status,
-    statusHistory: status !== entry.data.status
-      ? appendStatusHistory(entry.data, status, remove ? `Removed from ${batch.id}` : `Production batch ${batch.id}`)
-      : entry.data.statusHistory,
-    updatedAt: new Date().toISOString()
-  };
-  await store.setJSON(item.sourceId, updated, { onlyIfMatch: entry.etag });
-}
-
-async function syncSources(previousItems, nextItems, batch) {
-  const previous = new Map(previousItems.map((item) => [item.sourceItemId, item]));
-  const next = new Map(nextItems.map((item) => [item.sourceItemId, item]));
-  for (const [id, item] of previous) {
-    if (next.has(id)) continue;
-    if (item.sourceType === 'redemption') await syncRedemption(item, batch, true);
-    else await syncOrder(item, batch, true);
-  }
-  for (const item of nextItems) {
-    if (item.sourceType === 'redemption') await syncRedemption(item, batch, batch.status === 'cancelled');
-    else await syncOrder(item, batch, batch.status === 'cancelled');
-  }
-}
-
 export default async (request) => {
   if (request.method !== 'POST') return methodNotAllowed(['POST']);
   const denied = requireAdmin(request);
@@ -124,31 +46,41 @@ export default async (request) => {
     const name = cleanText(input.name, 180) || id;
     const status = cleanText(input.status, 40) || 'draft';
     const campaignId = cleanText(input.campaignId, 100);
+    const batchType = cleanText(input.batchType, 60) || 'manual';
     if (!BATCH_STATUSES.includes(status)) return json({ error: 'Invalid production batch status.' }, 400);
     const campaign = campaignId ? await findCampaignById(campaignId) : null;
     if (campaignId && !campaign) return json({ error: 'The selected campaign was not found.' }, 404);
+    if (batchType === 'campaign_church_pickup') {
+      if (!campaign || !['church_batch', 'hybrid'].includes(campaign.fulfillmentMethod)) return json({ error: 'Church-pickup batches require a campaign that supports church pickup.' }, 400);
+      if (!churchBatchReadiness(campaign).complete) return json({ error: 'Complete the campaign pickup configuration before creating a church-pickup batch.' }, 400);
+    }
+
     const store = getStore('izhe-production-batches');
     const entry = await store.getWithMetadata(id, { type: 'json', consistency: 'strong' });
-    if (payload.expectedUpdatedAt && entry?.data?.updatedAt !== payload.expectedUpdatedAt) {
-      return json({ error: 'This production batch changed in another session. Reload before saving.' }, 409);
-    }
+    if (payload.expectedUpdatedAt && entry?.data?.updatedAt !== payload.expectedUpdatedAt) return json({ error: 'This production batch changed in another session. Reload before saving.' }, 409);
     const items = cleanItems(input.items);
-    if (campaignId && items.some((item) => item.campaignId !== campaignId)) {
-      return json({ error: 'A campaign production batch can contain only fulfillment units attributed to that campaign.' }, 400);
-    }
+    if (campaignId && items.some((item) => item.campaignId !== campaignId)) return json({ error: 'A campaign production batch can contain only fulfillment units attributed to that campaign.' }, 400);
+    if (batchType === 'campaign_church_pickup' && items.some((item) => item.sourceType !== 'order')) return json({ error: 'Automatic church-pickup batches contain paid order items only. Give One redemptions remain separate.' }, 400);
+
     const now = new Date().toISOString();
+    const destination = batchType === 'campaign_church_pickup' ? pickupDestinationSnapshot(campaign) : input.destination || entry?.data?.destination || null;
     const batch = {
       id,
       name,
+      batchType,
       vendor: cleanText(input.vendor, 180),
       campaignId,
       campaignTitle: campaign?.title || '',
       campaignOrganization: campaign?.organization || '',
+      destination,
       status,
       dueDate: input.dueDate ? new Date(input.dueDate).toISOString() : '',
       submittedAt: status === 'submitted' && !entry?.data?.submittedAt ? now : entry?.data?.submittedAt || '',
-      completedAt: status === 'completed' ? now : entry?.data?.completedAt || '',
+      receivedAt: ['received', 'completed'].includes(status) && !entry?.data?.receivedAt ? now : entry?.data?.receivedAt || '',
+      receivedBy: cleanText(input.receivedBy || entry?.data?.receivedBy, 160),
+      completedAt: status === 'completed' ? (entry?.data?.completedAt || now) : entry?.data?.completedAt || '',
       tracking: cleanText(input.tracking, 180),
+      vendorToChurchTracking: cleanText(input.vendorToChurchTracking || input.tracking, 180),
       notes: cleanText(input.notes, 3000),
       items,
       productionSummary: batchProductionSummary(items),
@@ -157,11 +89,9 @@ export default async (request) => {
       updatedAt: now,
       statusHistory: appendStatusHistory(entry?.data || {}, status, cleanText(payload.note, 500))
     };
-    const result = entry
-      ? await store.setJSON(id, batch, { onlyIfMatch: entry.etag })
-      : await store.setJSON(id, batch, { onlyIfNew: true });
+    const result = entry ? await store.setJSON(id, batch, { onlyIfMatch: entry.etag }) : await store.setJSON(id, batch, { onlyIfNew: true });
     if (!result.modified) return json({ error: 'The production batch could not be saved because it changed in another session.' }, 409);
-    await syncSources(entry?.data?.items || [], items, batch);
+    await syncBatchSources(entry?.data?.items || [], items, batch);
     return json({ batch }, entry ? 200 : 201);
   } catch (error) {
     console.error('admin-save-batch', error);
