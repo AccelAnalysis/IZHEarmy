@@ -169,11 +169,15 @@ test('product duplication is server-authoritative, permissioned, audited, draft,
   const endpoint = read('netlify', 'functions', 'admin-duplicate-product.mjs');
   assert.match(endpoint, /catalog\.products\.duplicate/);
   assert.match(endpoint, /adminEndpoint/);
+  assert.match(endpoint, /const source = catalog\.products\.find/);
+  assert.match(endpoint, /structuredClone\(source\)/);
+  assert.match(endpoint, /products:\s*\[\.\.\.catalog\.products,\s*duplicate\]/);
   assert.match(endpoint, /status:\s*'draft'/);
   assert.match(endpoint, /availabilityStatus:\s*'paused'/);
-  assert.match(endpoint, /lookupKey/);
-  assert.match(endpoint, /sourceProduct/);
-  assert.match(endpoint, /audit/i);
+  assert.match(endpoint, /lookupKey:/);
+  assert.match(endpoint, /skuRegenerated:\s*true/);
+  assert.match(endpoint, /lookupKeyRegenerated:\s*true/);
+  assert.match(endpoint, /audit:/);
 });
 
 test('upload security validates signatures, sizes, quarantine state, and unsafe active content', () => {
