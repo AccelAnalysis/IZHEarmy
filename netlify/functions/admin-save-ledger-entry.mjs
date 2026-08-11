@@ -18,6 +18,10 @@ export default adminEndpoint({
   maxBodyBytes: 250_000
 }, async (request, context) => {
   const payload = await readJsonBody(request);
+  const approveNow = payload.approveNow === true;
+  if (approveNow && !hasPermission(context.permissions, 'accountability.approve')) {
+    throw Object.assign(new Error('Separate accountability approval permission is required to approve this action.'), { statusCode: 403 });
+  }
   const reason = requiredExplanation(payload.reason || payload.entry?.note);
   const entryInput = { ...(payload.entry || {}) };
   entryInput.idempotencyKey = String(entryInput.idempotencyKey || request.headers.get('idempotency-key') || '').trim();
@@ -26,10 +30,7 @@ export default adminEndpoint({
   }
 
   const approvalRequest = await createAccountabilityApprovalRequest(entryInput, context, reason);
-  if (payload.approveNow === true) {
-    if (!hasPermission(context.permissions, 'accountability.approve')) {
-      throw Object.assign(new Error('Separate accountability approval permission is required to approve this action.'), { statusCode: 403 });
-    }
+  if (approveNow) {
     const approved = await approveAccountabilityRequest(approvalRequest.id, context, {
       reason,
       confirmSameActor: payload.confirmSameActor === true
@@ -43,7 +44,7 @@ export default adminEndpoint({
         afterSummary: {
           status: 'approved',
           ledgerEntryId: approved.ledgerEntry.id,
-          sameActorOverride: true
+          sameActorOverride: Boolean(approved.request.sameActorOverride)
         }
       }
     };
