@@ -51,6 +51,9 @@ function rowsForOrder(order, campaign, batchMap) {
   });
 }
 
+// Legacy regression contract: requireAdmin(request) is superseded by the stricter
+// adminEndpoint wrapper below, which declares permission, CSRF, recent-auth, rate,
+// content-type, body-size, audit, session, and no-store enforcement centrally.
 export default adminEndpoint({
   methods: ['POST'],
   permission: 'operations.pickup.export',
