@@ -2,7 +2,6 @@ import { getStore } from '@netlify/blobs';
 import { requireAdmin } from './_shared/admin-auth.mjs';
 import { findCampaignById } from './_shared/campaign-service.mjs';
 import { appendStatusHistory, BATCH_STATUSES, batchProductionSummary, createBatchId } from './_shared/operations-rules.mjs';
-import { churchBatchReadiness } from './_shared/fulfillment-rules.mjs';
 import { pickupDestinationSnapshot } from './_shared/church-batch-rules.mjs';
 import { syncBatchSources } from './_shared/batch-sync.mjs';
 import { cleanText, json, methodNotAllowed } from './_shared/http.mjs';
@@ -58,34 +57,31 @@ export default async (request) => {
     const entry = await store.getWithMetadata(id, { type: 'json', consistency: 'strong' });
     if (payload.expectedUpdatedAt && entry?.data?.updatedAt !== payload.expectedUpdatedAt) return json({ error: 'This production batch changed in another session. Reload before saving.' }, 409);
 
+    const existingChurchPickup = entry?.data?.batchType === 'campaign_church_pickup';
     let batchType = requestedBatchType;
     let campaignId = requestedCampaignId;
-    if (entry?.data?.batchType === 'campaign_church_pickup') {
+    if (existingChurchPickup) {
       if (requestedBatchTypeValue && requestedBatchTypeValue !== 'campaign_church_pickup') return json({ error: 'The batch type cannot be changed after a church-pickup batch is created.' }, 400);
       if (requestedCampaignId && requestedCampaignId !== entry.data.campaignId) return json({ error: 'The campaign cannot be changed on an existing church-pickup batch.' }, 400);
       batchType = 'campaign_church_pickup';
       campaignId = entry.data.campaignId || requestedCampaignId;
     }
-    if (!entry && batchType === 'campaign_church_pickup') return json({ error: 'Create church-pickup batches with Build or Refresh Church Pickup Batch so eligibility and allocation rules are enforced.' }, 400);
+    if (batchType === 'campaign_church_pickup' && !existingChurchPickup) return json({ error: 'Create church-pickup batches with Build or Refresh Church Pickup Batch so eligibility and allocation rules are enforced.' }, 400);
 
     const campaign = campaignId ? await findCampaignById(campaignId) : null;
-    if (campaignId && !campaign) return json({ error: 'The selected campaign was not found.' }, 404);
-    if (batchType === 'campaign_church_pickup') {
-      if (!campaign || !['church_batch', 'hybrid'].includes(campaign.fulfillmentMethod)) return json({ error: 'Church-pickup batches require a campaign that supports church pickup.' }, 400);
-      if (!churchBatchReadiness(campaign).complete) return json({ error: 'Complete the campaign pickup configuration before updating a church-pickup batch.' }, 400);
-    }
+    if (campaignId && !campaign && !existingChurchPickup) return json({ error: 'The selected campaign was not found.' }, 404);
 
     let items = cleanItems(input.items);
     if (campaignId && items.some((item) => item.campaignId !== campaignId)) return json({ error: 'A campaign production batch can contain only fulfillment units attributed to that campaign.' }, 400);
-    if (batchType === 'campaign_church_pickup') {
-      const existingItems = cleanItems(entry?.data?.items || []);
+    if (existingChurchPickup) {
+      const existingItems = cleanItems(entry.data.items || []);
       if (Array.isArray(input.items) && itemSetSignature(input.items) !== itemSetSignature(existingItems)) return json({ error: 'Church-pickup batch items are managed only through Build or Refresh Church Pickup Batch. Submitted production obligations cannot be edited silently.' }, 409);
       items = existingItems;
       if (items.some((item) => item.sourceType !== 'order')) return json({ error: 'Church-pickup batches contain paid order items only. Give One redemptions remain separate.' }, 400);
     }
 
     const now = new Date().toISOString();
-    const destination = batchType === 'campaign_church_pickup' ? (entry?.data?.destination || pickupDestinationSnapshot(campaign)) : input.destination || entry?.data?.destination || null;
+    const destination = existingChurchPickup ? (entry.data.destination || pickupDestinationSnapshot(campaign)) : input.destination || entry?.data?.destination || null;
     const batch = {
       id,
       name,
@@ -103,7 +99,7 @@ export default async (request) => {
       completedAt: status === 'completed' ? (entry?.data?.completedAt || now) : entry?.data?.completedAt || '',
       tracking: cleanText(input.tracking || entry?.data?.tracking, 180),
       vendorToChurchTracking: cleanText(input.vendorToChurchTracking || input.tracking || entry?.data?.vendorToChurchTracking, 180),
-      notes: cleanText(input.notes, 3000),
+      notes: cleanText(input.notes || entry?.data?.notes, 3000),
       items,
       productionSummary: batchProductionSummary(items),
       itemCount: items.reduce((sum, item) => sum + Number(item.quantity || 0), 0),
