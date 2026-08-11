@@ -149,6 +149,11 @@ export function validateProduct(input, collections = []) {
   };
 }
 
+function validateAppliedMigrations(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map((item) => String(item || '').trim()).filter(Boolean))].slice(0, 100);
+}
+
 export function validateCatalog(catalog) {
   const collections = (catalog?.collections || []).map(validateCollection);
   const ids = new Set();
@@ -169,6 +174,7 @@ export function validateCatalog(catalog) {
     schemaVersion: 1,
     revision: Number(catalog?.revision || 1),
     updatedAt: catalog?.updatedAt || new Date().toISOString(),
+    appliedMigrations: validateAppliedMigrations(catalog?.appliedMigrations),
     collections,
     products
   };
@@ -200,4 +206,3 @@ export function publicCatalog(catalog, { includeDrafts = false, now = new Date()
 export function catalogMap(catalog) {
   return new Map((catalog?.products || []).map((product) => [product.id, product]));
 }
-
