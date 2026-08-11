@@ -86,9 +86,15 @@ export function computeOperationalAlerts({ orders = [], redemptions = [], codes 
     else if (!churchPickup && ['paid', 'processing'].includes(order.status) && ageInDays(order.createdAt, now) >= 3) push('warning', 'order', id, 'Paid order not allocated', `Order ${id} has remained ${order.status} for at least 3 days.`, order.createdAt, 'orders');
     if (!churchPickup && order.status === 'shipped' && !order.tracking) push('warning', 'order', id, 'Tracking number missing', `Order ${id} is marked shipped without tracking information.`, order.updatedAt, 'orders');
     if (['refunded_or_disputed', 'refund_requires_review', 'cancelled'].includes(order.status)) {
+      const committed = new Map();
       for (const assignment of order.batchAssignments || []) {
-        if (!['submitted', 'in_production', 'received', 'completed'].includes(assignment.batchStatus)) continue;
-        push('critical', 'batch-reconciliation', id, 'Refund or cancellation after batch submission', `Order ${id} changed to ${order.status.replaceAll('_', ' ')} after production commitment in batch ${assignment.batchId}. Reconcile ${assignment.quantity || 1} unit(s) manually.`, order.updatedAt, 'batches', { batchId: assignment.batchId, campaignId: order.campaignId || '', quantity: assignment.quantity || 1 });
+        if (!['submitted', 'in_production', 'received', 'completed'].includes(assignment.batchStatus) || !assignment.batchId) continue;
+        const current = committed.get(assignment.batchId) || { quantity: 0, campaignId: order.campaignId || '' };
+        current.quantity += Math.max(1, Number(assignment.quantity || 1));
+        committed.set(assignment.batchId, current);
+      }
+      for (const [batchId, details] of committed) {
+        push('critical', 'batch-reconciliation', id, 'Refund or cancellation after batch submission', `Order ${id} changed to ${order.status.replaceAll('_', ' ')} after production commitment in batch ${batchId}. Reconcile ${details.quantity} unit(s) manually.`, order.updatedAt, 'batches', { batchId, campaignId: details.campaignId, quantity: details.quantity });
       }
     }
   }
@@ -114,18 +120,29 @@ export function computeOperationalAlerts({ orders = [], redemptions = [], codes 
   return alerts.sort((a, b) => severityRank[a.severity] - severityRank[b.severity] || new Date(a.createdAt) - new Date(b.createdAt));
 }
 
-export function resolveOrderBatchLifecycle({ mode = 'individual_shipping', orderStatus = 'processing', itemCount = 0, assignments = [], remove = false } = {}) {
+function allocationCoverage(items = [], itemCount = 0, assignments = []) {
+  const requirements = new Map();
+  if (items.length) items.forEach((item, index) => requirements.set(index, Math.max(1, Number(item.quantity || 1))));
+  else for (let index = 0; index < Math.max(1, Number(itemCount || 0)); index += 1) requirements.set(index, 1);
+  const assigned = new Map();
+  for (const assignment of assignments || []) {
+    if (assignment.itemIndex == null) continue;
+    assigned.set(assignment.itemIndex, (assigned.get(assignment.itemIndex) || 0) + Math.max(0, Number(assignment.quantity || 0)));
+  }
+  const allAssigned = [...requirements].every(([index, quantity]) => (assigned.get(index) || 0) >= quantity);
+  return { allAssigned, requirements, assigned };
+}
+
+export function resolveOrderBatchLifecycle({ mode = 'individual_shipping', orderStatus = 'processing', itemCount = 0, items = [], assignments = [], remove = false } = {}) {
   const statuses = (assignments || []).map((assignment) => assignment.batchStatus || 'ready');
+  const { allAssigned } = allocationCoverage(items, itemCount, assignments);
   if (mode === 'church_batch') {
     if (remove && assignments.length === 0) return { orderStatus: 'paid', fulfillmentStatus: 'awaiting_batch' };
-    if (statuses.some((value) => ['received', 'completed'].includes(value))) return { orderStatus: 'ready_for_pickup', fulfillmentStatus: 'ready_for_pickup' };
-    if (statuses.some((value) => value === 'in_production')) return { orderStatus: 'in_production', fulfillmentStatus: 'in_production' };
+    if (allAssigned && statuses.length && statuses.every((value) => ['received', 'completed'].includes(value))) return { orderStatus: 'ready_for_pickup', fulfillmentStatus: 'ready_for_pickup' };
+    if (statuses.some((value) => value === 'in_production') || statuses.some((value) => ['received', 'completed'].includes(value))) return { orderStatus: 'in_production', fulfillmentStatus: 'in_production' };
     if (statuses.some((value) => ['ready', 'submitted'].includes(value))) return { orderStatus: 'allocated', fulfillmentStatus: 'allocated' };
     return { orderStatus, fulfillmentStatus: orderStatus === 'paid' ? 'awaiting_batch' : orderStatus };
   }
-  const totalItems = Math.max(1, Number(itemCount || 0));
-  const assignedIndexes = new Set((assignments || []).map((assignment) => assignment.itemIndex).filter((value) => value != null));
-  const allAssigned = assignedIndexes.size >= totalItems;
   if (!assignments.length) { const reset = ['allocated', 'in_production', 'ready_to_ship'].includes(orderStatus) ? 'processing' : orderStatus; return { orderStatus: reset, fulfillmentStatus: reset }; }
   if (allAssigned && statuses.every((value) => ['received', 'completed'].includes(value))) return { orderStatus: 'ready_to_ship', fulfillmentStatus: 'ready_to_ship' };
   if (statuses.some((value) => value === 'in_production') || statuses.some((value) => ['received', 'completed'].includes(value))) return { orderStatus: 'in_production', fulfillmentStatus: 'in_production' };
