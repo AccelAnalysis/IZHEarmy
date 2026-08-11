@@ -158,8 +158,9 @@ for (const viewport of viewports) {
     await expect(page.getByRole('heading', { name: 'Overview', exact: true }).last()).toBeVisible();
     await assertNoBodyOverflow(page);
     if (viewport.width <= 768) {
-      await expect(page.getByRole('button', { name: 'Open navigation' })).toBeVisible();
-      await page.getByRole('button', { name: 'Open navigation' }).click();
+      const navButton = page.getByRole('button', { name: 'Open navigation' });
+      await expect(navButton).toBeVisible();
+      await navButton.click();
       await expect(page.getByRole('navigation', { name: 'Administration navigation' })).toBeVisible();
     }
   });
@@ -176,8 +177,9 @@ test('Products, editor, and shared Media Library picker are consistent', async (
   await expect(page.getByRole('button', { name: 'Choose from Media Library' })).toBeVisible();
   await page.screenshot({ path: path.join(evidenceDir, 'product-editor-1440.png'), fullPage: true });
   await page.getByRole('button', { name: 'Choose from Media Library' }).click();
-  await expect(page.getByRole('dialog')).toBeVisible();
-  await expect(page.getByText('Approved church gathering')).toBeVisible();
+  const pickerDialog = page.getByRole('dialog', { name: 'Media Library' });
+  await expect(pickerDialog).toBeVisible();
+  await expect(pickerDialog.getByText('Approved church gathering')).toBeVisible();
   await page.screenshot({ path: path.join(evidenceDir, 'media-picker-1440.png'), fullPage: true });
 });
 
@@ -193,14 +195,19 @@ test('Orders use progressive-disclosure filters and accessible row actions', asy
   expect(search).not.toBeNull();
   expect(Math.abs(before.y - search.y)).toBeLessThan(48);
   await moreFilters.click();
+  const filtersDialog = page.getByRole('dialog', { name: 'More Filters' });
+  await expect(filtersDialog).toBeVisible();
   await page.screenshot({ path: path.join(evidenceDir, 'orders-filters-1440.png'), fullPage: true });
+  await filtersDialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(filtersDialog).toHaveCount(0);
   await expect(page.getByText('IZHE-1001')).toBeVisible();
-  const actions = page.getByRole('button', { name: /More actions/i }).first();
+  const actions = page.getByRole('button', { name: /More Actions for IZHE-1001/i });
   await actions.focus();
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('menu')).toBeVisible();
+  await expect(page.getByRole('menu', { name: 'More Actions' })).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('menu')).toHaveCount(0);
+  await expect(page.getByRole('menu', { name: 'More Actions' })).toHaveCount(0);
+  await expect(actions).toBeFocused();
 });
 
 test('Campaign, accountability, administration and audit representative views render', async ({ page }) => {
@@ -230,5 +237,8 @@ test('mobile navigation and filter affordance remain accessible', async ({ page 
   await expect(page.getByRole('navigation', { name: 'Administration navigation' })).toBeVisible();
   await page.screenshot({ path: path.join(evidenceDir, 'mobile-navigation-390.png'), fullPage: true });
   await page.getByRole('button', { name: 'Close navigation' }).click();
-  await expect(page.getByRole('button', { name: /Filters/i })).toBeVisible();
+  const filtersButton = page.getByRole('button', { name: 'Filters', exact: true });
+  await expect(filtersButton).toBeVisible();
+  await filtersButton.click();
+  await expect(page.getByRole('dialog', { name: 'More Filters' })).toBeVisible();
 });
