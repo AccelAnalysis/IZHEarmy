@@ -1,7 +1,9 @@
 import { getStore } from '@netlify/blobs';
+import { assertReportingPeriodOpen } from './accountability-period-service.mjs';
 import { appendLedgerEntry } from './accountability-service.mjs';
 import { organizationAccountability, validateLedgerEntry } from './accountability-rules.mjs';
 import { randomToken } from './admin-crypto.mjs';
+import { activeOwners } from './admin-user-service.mjs';
 import { listCampaigns, listStoreJSON } from './campaign-service.mjs';
 
 const STORE_NAME = 'izhe-accountability-approvals';
@@ -19,8 +21,10 @@ async function operationalRecords() {
 }
 
 async function appendValidated(input, campaigns) {
+  await assertReportingPeriodOpen(input.effectiveAt || new Date().toISOString());
   return appendLedgerEntry(input, campaigns, {
     validateWithinLease: async (candidate, currentLedger) => {
+      await assertReportingPeriodOpen(candidate.effectiveAt || new Date().toISOString());
       const records = await operationalRecords();
       const accountability = organizationAccountability(campaigns, records, currentLedger);
       const target = candidate.campaignId
@@ -49,6 +53,7 @@ export async function createAccountabilityApprovalRequest(input, context, reason
     actorType: 'admin-user',
     source: 'admin-v2'
   }, campaigns);
+  await assertReportingPeriodOpen(normalized.effectiveAt || new Date().toISOString());
   const createdAt = now();
   const request = {
     id: `AAR_${randomToken(18)}`,
@@ -96,9 +101,15 @@ export async function approveAccountabilityRequest(id, context, {
   if (!entry?.data) throw Object.assign(new Error('Accountability approval request not found.'), { statusCode: 404 });
   const request = entry.data;
   if (request.status !== 'pending') throw Object.assign(new Error('Only a pending accountability request can be approved.'), { statusCode: 409 });
+  await assertReportingPeriodOpen(request.entry?.effectiveAt || new Date().toISOString());
   if (request.requestedBy === context.userId) {
-    if (!context.roles.includes('owner') || confirmSameActor !== true) {
-      throw Object.assign(new Error('The requester cannot approve the same action unless acting as the sole Owner with explicit confirmation.'), { statusCode: 403 });
+    const owners = await activeOwners();
+    const soleOwnerOverride = context.roles.includes('owner')
+      && owners.length === 1
+      && owners[0].id === context.userId
+      && confirmSameActor === true;
+    if (!soleOwnerOverride) {
+      throw Object.assign(new Error('The requester cannot approve the same action unless they are the sole active Owner and explicitly confirm the override.'), { statusCode: 403 });
     }
   }
   const campaigns = await listCampaigns();
@@ -119,6 +130,7 @@ export async function approveAccountabilityRequest(id, context, {
     reviewedByEmail: context.email,
     reviewedByDisplayName: context.displayName,
     reviewReason: String(reason || '').slice(0, 1_000),
+    sameActorOverride: request.requestedBy === context.userId,
     ledgerEntryId: ledgerEntry.id,
     updatedAt: now()
   };
