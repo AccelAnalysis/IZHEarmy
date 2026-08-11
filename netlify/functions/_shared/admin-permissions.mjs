@@ -111,7 +111,7 @@ export const ROLES = Object.freeze({
   finance_accountability_administrator: Object.freeze({
     id: 'finance_accountability_administrator',
     label: 'Finance and Accountability Administrator',
-    description: 'Accountability reporting, append-only ledger work, payment review, exports, and separately authorized locks.',
+    description: 'Accountability reporting, append-only ledger work, payment review, and bounded exports.',
     permissions: [
       'overview.read',
       'accountability.read', 'accountability.write', 'accountability.export',
@@ -119,6 +119,18 @@ export const ROLES = Object.freeze({
       'operations.orders.read',
       'operations.give_one.read'
     ]
+  }),
+  accountability_approver: Object.freeze({
+    id: 'accountability_approver',
+    label: 'Accountability Approver',
+    description: 'Separate approval authority for financial and accountability actions.',
+    permissions: ['overview.read', 'accountability.read', 'accountability.approve']
+  }),
+  accountability_period_manager: Object.freeze({
+    id: 'accountability_period_manager',
+    label: 'Accountability Period Manager',
+    description: 'Separate authority to lock or unlock accountability reporting periods.',
+    permissions: ['overview.read', 'accountability.read', 'accountability.lock_period']
   }),
   auditor: Object.freeze({
     id: 'auditor',
@@ -160,8 +172,8 @@ export function roleSummary(roles = []) {
   return validRoles(roles).map((role) => ROLES[role].label);
 }
 
-const read = (permission, auditAction) => ({
-  methods: ['GET'], permission, csrf: false, recentAuth: false, auditAction, rateClass: 'read'
+const read = (permission, auditAction, extra = {}) => ({
+  methods: ['GET'], permission, csrf: false, recentAuth: false, auditAction, rateClass: 'read', ...extra
 });
 const write = (permission, auditAction, extra = {}) => ({
   methods: ['POST'], permission, csrf: true, recentAuth: false, auditAction, rateClass: 'write',
@@ -177,9 +189,8 @@ const exportPolicy = (permission, auditAction) => ({
 });
 
 /**
- * Every administrative Netlify Function must appear here. Public functions that
- * optionally reveal draft or restricted data pass an explicit permission to
- * `isAdmin()` and are covered separately by the endpoint-coverage test.
+ * Every authenticated administrative Netlify Function must appear here. The
+ * unauthenticated OIDC lifecycle endpoints are enumerated separately below.
  */
 export const ADMIN_ENDPOINT_POLICIES = Object.freeze({
   'admin-catalog': read('catalog.products.read', 'catalog.read'),
@@ -217,14 +228,23 @@ export const ADMIN_ENDPOINT_POLICIES = Object.freeze({
   'admin-overview': read('overview.read', 'overview.read'),
   'admin-list': read('overview.read', 'admin_list.read'),
   'admin-detail': read('overview.read', 'admin_detail.read'),
-  'admin-session': read('overview.read', 'session.read'),
   'admin-logout': write('overview.read', 'session.logout'),
-  'admin-users': { methods: ['GET', 'POST'], permission: 'administration.users.read', csrf: true, recentAuth: false, auditAction: 'administrator.manage', rateClass: 'write', contentTypes: ['application/json'], maxBodyBytes: 100_000 },
-  'admin-sessions': read('administration.sessions.manage', 'sessions.read'),
-  'admin-revoke-session': write('administration.sessions.manage', 'session.revoke', { recentAuth: true }),
+  'admin-step-up': read('overview.read', 'session.step_up'),
+  'admin-users': read('administration.users.read', 'administrator.list'),
+  'admin-invite-user': write('administration.users.manage', 'administrator.invite', { recentAuth: true, maxBodyBytes: 100_000 }),
+  'admin-update-user': write('administration.roles.manage', 'administrator.update', { recentAuth: true, maxBodyBytes: 100_000 }),
+  'admin-sessions': read('overview.read', 'sessions.read'),
+  'admin-revoke-session': write('overview.read', 'session.revoke', { recentAuth: true, maxBodyBytes: 100_000 }),
   'admin-audit': read('administration.audit.read', 'audit.read'),
-  'admin-audit-verify': read('administration.audit.read', 'audit.verify')
+  'admin-audit-verify': read('administration.audit.read', 'audit.verify'),
+  'admin-audit-export': exportPolicy('administration.audit.read', 'audit.export')
 });
+
+export const ADMIN_AUTH_ENDPOINTS = Object.freeze([
+  'admin-login',
+  'admin-oidc-callback',
+  'admin-session'
+]);
 
 export const PUBLIC_ADMIN_AWARE_ENDPOINTS = Object.freeze({
   'public-catalog': 'catalog.products.read',
