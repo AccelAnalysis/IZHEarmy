@@ -1,46 +1,61 @@
-import { requireAdmin } from './_shared/admin-auth.mjs';
-import { appendLedgerEntry } from './_shared/accountability-service.mjs';
-import { organizationAccountability } from './_shared/accountability-rules.mjs';
-import { listCampaigns, listStoreJSON } from './_shared/campaign-service.mjs';
-import { json, methodNotAllowed } from './_shared/http.mjs';
+import { adminEndpoint } from './_shared/admin-auth-v2.mjs';
+import {
+  approveAccountabilityRequest,
+  createAccountabilityApprovalRequest
+} from './_shared/accountability-admin-service.mjs';
+import { hasPermission } from './_shared/admin-permissions.mjs';
+import { readJsonBody, requiredExplanation } from './_shared/admin-request.mjs';
+import { json } from './_shared/http.mjs';
 
-export default async (request) => {
-  if (request.method !== 'POST') return methodNotAllowed(['POST']);
-  const denied = requireAdmin(request);
-  if (denied) return denied;
-  try {
-    const payload = await request.json();
-    const input = { ...(payload.entry || {}) };
-    input.idempotencyKey = String(input.idempotencyKey || request.headers.get('idempotency-key') || '').trim();
-    if (!input.idempotencyKey) return json({ error: 'A stable idempotency key is required for every ledger action.' }, 400);
-    input.actorType = 'admin-token';
-    input.source = 'admin';
-    const campaigns = await listCampaigns();
-    const entry = await appendLedgerEntry(input, campaigns, {
-      validateWithinLease: async (candidate, currentLedger) => {
-        const [orders, codes, redemptions, batches] = await Promise.all([
-          listStoreJSON('izhe-orders', 10000),
-          listStoreJSON('izhe-give-codes', 10000),
-          listStoreJSON('izhe-redemptions', 10000),
-          listStoreJSON('izhe-production-batches', 10000)
-        ]);
-        const accountability = organizationAccountability(campaigns, { orders, codes, redemptions, batches }, currentLedger);
-        const target = candidate.campaignId ? accountability.campaigns.find((item) => item.campaignId === candidate.campaignId) : accountability.general;
-        const amount = Math.round(Number(candidate.amount || 0));
-        if (candidate.type === 'support_payment' && amount > Math.max(0, Number(target?.supportOutstanding || 0))) {
-          throw Object.assign(new Error('This payment exceeds the currently available outstanding ministry-support balance.'), { statusCode: 409 });
-        }
-        if (candidate.type === 'payment_reversal' && amount > Math.max(0, Number(target?.supportPaid || 0))) {
-          throw Object.assign(new Error('This payment reversal exceeds the support payments currently recorded.'), { statusCode: 409 });
-        }
-        if (candidate.type === 'cost_reversal' && amount > Math.max(0, Number(target?.campaignCosts || 0))) {
-          throw Object.assign(new Error('This cost reversal exceeds the costs currently recorded.'), { statusCode: 409 });
+export default adminEndpoint({
+  methods: ['POST'],
+  permission: 'accountability.write',
+  csrf: true,
+  recentAuth: true,
+  auditAction: 'accountability.request',
+  rateClass: 'write',
+  contentTypes: ['application/json'],
+  maxBodyBytes: 250_000
+}, async (request, context) => {
+  const payload = await readJsonBody(request);
+  const reason = requiredExplanation(payload.reason || payload.entry?.note);
+  const entryInput = { ...(payload.entry || {}) };
+  entryInput.idempotencyKey = String(entryInput.idempotencyKey || request.headers.get('idempotency-key') || '').trim();
+  if (!entryInput.idempotencyKey) {
+    throw Object.assign(new Error('A stable idempotency key is required for every accountability action.'), { statusCode: 400 });
+  }
+
+  const approvalRequest = await createAccountabilityApprovalRequest(entryInput, context, reason);
+  if (payload.approveNow === true) {
+    if (!hasPermission(context.permissions, 'accountability.approve')) {
+      throw Object.assign(new Error('Separate accountability approval permission is required to approve this action.'), { statusCode: 403 });
+    }
+    const approved = await approveAccountabilityRequest(approvalRequest.id, context, {
+      reason,
+      confirmSameActor: payload.confirmSameActor === true
+    });
+    return {
+      response: json({ approvalRequest: approved.request, entry: approved.ledgerEntry }, 201),
+      audit: {
+        resourceType: 'accountability_approval',
+        resourceId: approvalRequest.id,
+        reason,
+        afterSummary: {
+          status: 'approved',
+          ledgerEntryId: approved.ledgerEntry.id,
+          sameActorOverride: true
         }
       }
-    });
-    return json({ entry }, 201);
-  } catch (error) {
-    console.error('admin-save-ledger-entry', String(error?.message || error).slice(0, 500));
-    return json({ error: error.message || 'The ledger entry could not be recorded.' }, error.statusCode || 400);
+    };
   }
-};
+
+  return {
+    response: json({ approvalRequest }, 202),
+    audit: {
+      resourceType: 'accountability_approval',
+      resourceId: approvalRequest.id,
+      reason,
+      afterSummary: { status: 'pending', entryType: approvalRequest.entry.type, amount: approvalRequest.entry.amount }
+    }
+  };
+});
