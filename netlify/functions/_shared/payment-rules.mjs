@@ -201,13 +201,16 @@ export function applyRefundFacts(payment, { totalRefunded = 0, merchandiseRefund
   const tax = Math.max(0, cents(taxRefunded));
   const allocated = Math.min(total, merchandise + shipping + tax);
   const unallocated = Math.max(0, total - allocated);
+  const charged = Math.max(0, cents(next.amounts.totalCharged));
   next.amounts.merchandiseRefunded = merchandise;
   next.amounts.shippingRefunded = shipping;
   next.amounts.taxRefunded = tax;
   next.amounts.refundUnallocated = unallocated;
   next.amounts.totalRefunded = total;
-  next.refundStatus = allocationRequired || unallocated > 0 ? 'allocation_required' : total === 0 ? 'none' : total >= Math.max(0, cents(next.amounts.totalCharged)) ? 'full' : 'partial';
-  next.reconciliationStatus = next.refundStatus === 'allocation_required' ? 'allocation_required' : next.reconciliationStatus || 'reconciled';
+  next.refundStatus = total === 0 ? 'none' : charged > 0 && total >= charged ? 'full' : 'partial';
+  if (allocationRequired || unallocated > 0) next.reconciliationStatus = 'allocation_required';
+  else if (next.reconciliationStatus === 'allocation_required') next.reconciliationStatus = 'reconciled';
+  else next.reconciliationStatus = next.reconciliationStatus || 'reconciled';
   next.refundReferences = [...new Map([...(next.refundReferences || []), ...refundReferences].map((item) => [String(item?.id || item), item])).values()];
   return recomputePaymentAvailability({ ...next, lastStripeEventAt: at });
 }
