@@ -1,5 +1,6 @@
 import { getStore } from '@netlify/blobs';
 import Stripe from 'stripe';
+import { lockCampaignSupportPolicy } from './_shared/campaign-service.mjs';
 import { fulfillPaidSession } from './_shared/fulfill.mjs';
 import { processDisputeEvent, processRefundEvent } from './_shared/payment-event-service.mjs';
 import { markPaymentEventOnOrder } from './_shared/payment-service.mjs';
@@ -52,10 +53,8 @@ export default async (request) => {
     return new Response('Webhook signature verification failed', { status: 400 });
   }
 
-  let receipt;
   try {
     const begun = await beginStripeEventReceipt(event, rawBody);
-    receipt = begun.receipt;
     if (begun.alreadyProcessed) return new Response('ok');
   } catch (error) {
     console.error('stripe-webhook receipt persistence failed', String(error?.message || error).slice(0, 300));
@@ -69,6 +68,9 @@ export default async (request) => {
       const session = event.data.object;
       if (session.payment_status === 'paid' || event.type === 'checkout.session.async_payment_succeeded') {
         const order = await fulfillPaidSession(stripe, session, { eventId: event.id, eventCreatedAt: createdAt });
+        if (order.campaignId && order.supportPolicy?.policyVersion && order.accountabilityProjection?.qualifying) {
+          await lockCampaignSupportPolicy(order.campaignId, order.supportPolicy.policyVersion, order.payment?.paidAt || createdAt);
+        }
         await linkStripeEventOrder(event.id, order.sessionId, {
           checkoutSessionId: order.sessionId,
           paymentIntentId: order.payment?.paymentIntentId || order.paymentIntentId || ''
