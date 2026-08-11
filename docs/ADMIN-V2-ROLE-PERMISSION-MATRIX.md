@@ -68,6 +68,7 @@
 - `operations.fulfillment.write`
 - `operations.batches.read`
 - `operations.batches.write`
+- `operations.batches.export`
 - `operations.pickup.read`
 - `operations.pickup.write`
 - `operations.pickup.export`
