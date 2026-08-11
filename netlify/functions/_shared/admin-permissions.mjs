@@ -111,7 +111,7 @@ export const ROLES = Object.freeze({
   finance_accountability_administrator: Object.freeze({
     id: 'finance_accountability_administrator',
     label: 'Finance and Accountability Administrator',
-    description: 'Accountability reporting, append-only ledger work, payment review, and bounded exports.',
+    description: 'Accountability reporting, append-only entry requests, payment review, and bounded exports.',
     permissions: [
       'overview.read',
       'accountability.read', 'accountability.write', 'accountability.export',
@@ -181,72 +181,82 @@ const write = (permission, auditAction, extra = {}) => ({
 });
 const upload = (permission, auditAction, extra = {}) => ({
   methods: ['POST'], permission, csrf: true, recentAuth: false, auditAction, rateClass: 'upload',
-  contentTypes: ['multipart/form-data', 'application/json'], maxBodyBytes: 15_000_000, ...extra
+  contentTypes: ['multipart/form-data'], maxBodyBytes: 6 * 1024 * 1024, ...extra
 });
 const exportPolicy = (permission, auditAction) => ({
-  methods: ['GET', 'POST'], permission, csrf: true, recentAuth: true, auditAction, rateClass: 'export',
+  methods: ['POST'], permission, csrf: true, recentAuth: true, auditAction, rateClass: 'export',
   contentTypes: ['application/json'], maxBodyBytes: 100_000
 });
 
 /**
- * Every authenticated administrative Netlify Function must appear here. The
- * unauthenticated OIDC lifecycle endpoints are enumerated separately below.
+ * Canonical inventory for authenticated administrative Netlify Functions.
+ * Multi-mode endpoints declare their lowest entry permission here and enforce
+ * stronger action-specific permissions in their own adminEndpoint handlers.
  */
 export const ADMIN_ENDPOINT_POLICIES = Object.freeze({
-  'admin-catalog': read('catalog.products.read', 'catalog.read'),
-  'admin-data': read('operations.orders.read', 'operations.read'),
-  'admin-content-data': read('content.website.read', 'website_content.read'),
-  'admin-teaching-data': read('content.teaching.read', 'teaching.read'),
+  'admin-accountability-approvals': read('accountability.read', 'accountability.approvals.read'),
+  'admin-accountability-periods': read('accountability.read', 'accountability.periods.read'),
+  'admin-allocate-refund': write('accountability.read', 'refund_allocation.route', { maxBodyBytes: 250_000 }),
+  'admin-audit': read('administration.audit.read', 'audit.read'),
+  'admin-audit-export': exportPolicy('administration.audit.read', 'audit.export'),
+  'admin-audit-verify': read('administration.audit.read', 'audit.verify'),
+  'admin-build-church-batch': write('operations.batches.write', 'church_batch.build', { rateClass: 'bulk', maxBodyBytes: 100_000 }),
   'admin-campaign-data': read('campaigns.read', 'campaign.read'),
+  'admin-campaign-report': exportPolicy('campaigns.export', 'campaign_report.export'),
+  'admin-catalog': read('catalog.products.read', 'catalog.read'),
+  'admin-content-data': read('content.website.read', 'website_content.read'),
+  'admin-create-codes': write('operations.give_one.write', 'give_one.codes.create', { recentAuth: true, rateClass: 'bulk', maxBodyBytes: 100_000 }),
+  'admin-data': read('operations.orders.read', 'operations.read'),
+  'admin-detail': read('overview.read', 'admin_detail.read'),
+  'admin-duplicate-product': write('catalog.products.duplicate', 'product.duplicate', { maxBodyBytes: 100_000 }),
+  'admin-export': exportPolicy('overview.read', 'operations.export'),
   'admin-finance-data': read('accountability.read', 'accountability.read'),
+  'admin-finance-export': exportPolicy('accountability.export', 'accountability.export'),
+  'admin-financial-actions': read('accountability.read', 'financial_actions.read'),
+  'admin-invite-user': write('administration.users.manage', 'administrator.invite', { recentAuth: true, maxBodyBytes: 100_000 }),
+  'admin-list': read('overview.read', 'admin_list.read'),
+  'admin-logout': write('overview.read', 'session.logout', { maxBodyBytes: 10_000 }),
+  'admin-overview': read('overview.read', 'overview.read'),
   'admin-payment-migration-report': read('accountability.read', 'payment_migration.read'),
-  'admin-save-collection': write('catalog.collections.write', 'collection.save'),
-  'admin-save-product': write('catalog.products.write', 'product.save'),
-  'admin-duplicate-product': write('catalog.products.duplicate', 'product.duplicate'),
-  'admin-save-content': write('content.website.write', 'website_content.save'),
-  'admin-visual-editor': write('content.website.write', 'visual_editor.save'),
-  'admin-save-teaching': write('content.teaching.write', 'teaching.save'),
-  'admin-save-campaign': write('campaigns.write', 'campaign.save'),
-  'admin-update-inquiry': write('campaigns.write', 'campaign_inquiry.update'),
-  'admin-update-order': write('operations.orders.write', 'order.update'),
-  'admin-create-codes': write('operations.give_one.write', 'give_one.codes.create', { recentAuth: true, rateClass: 'bulk' }),
-  'admin-update-code': write('operations.give_one.write', 'give_one.code.update'),
-  'admin-update-redemption': write('operations.give_one.write', 'give_one.redemption.update'),
+  'admin-pickup-order': write('operations.pickup.write', 'pickup.order.update', { maxBodyBytes: 100_000 }),
+  'admin-pickup-roster': exportPolicy('operations.pickup.export', 'pickup_roster.export'),
+  'admin-reconcile-payment': write('accountability.read', 'payment_reconciliation.route', { maxBodyBytes: 100_000 }),
+  'admin-reject-financial-action': write('accountability.approve', 'financial_action.reject', { recentAuth: true, maxBodyBytes: 100_000 }),
+  'admin-review-accountability': write('accountability.approve', 'accountability.review', { recentAuth: true, maxBodyBytes: 100_000 }),
+  'admin-revoke-session': write('overview.read', 'session.revoke', { recentAuth: true, maxBodyBytes: 100_000 }),
   'admin-save-batch': write('operations.batches.write', 'batch.save'),
-  'admin-build-church-batch': write('operations.batches.write', 'church_batch.build', { rateClass: 'bulk' }),
-  'admin-pickup-order': write('operations.pickup.write', 'pickup.order.update'),
-  'admin-update-media': write('media.manage', 'media.update'),
+  'admin-save-campaign': write('campaigns.write', 'campaign.save'),
+  'admin-save-collection': write('catalog.collections.write', 'collection.save', { maxBodyBytes: 500_000 }),
+  'admin-save-content': write('content.website.write', 'website_content.save'),
+  'admin-save-ledger-entry': write('accountability.write', 'accountability.request', { recentAuth: true, maxBodyBytes: 250_000 }),
+  'admin-save-product': write('catalog.products.write', 'product.save'),
+  'admin-save-teaching': write('content.teaching.write', 'teaching.save'),
+  'admin-sessions': read('overview.read', 'sessions.read'),
+  'admin-step-up': read('overview.read', 'session.step_up'),
+  'admin-teaching-data': read('content.teaching.read', 'teaching.read'),
+  'admin-update-accountability-period': write('accountability.lock_period', 'accountability.period.update', { recentAuth: true, maxBodyBytes: 100_000 }),
+  'admin-update-code': write('operations.give_one.write', 'give_one.code.update', { maxBodyBytes: 100_000 }),
+  'admin-update-inquiry': write('campaigns.write', 'campaign_inquiry.update', { maxBodyBytes: 250_000 }),
+  'admin-update-media': write('media.manage', 'media.update', { maxBodyBytes: 250_000 }),
+  'admin-update-order': write('operations.orders.write', 'order.update', { maxBodyBytes: 250_000 }),
+  'admin-update-redemption': write('operations.give_one.write', 'give_one.redemption.update', { maxBodyBytes: 250_000 }),
+  'admin-update-user': write('administration.roles.manage', 'administrator.update', { recentAuth: true, maxBodyBytes: 100_000 }),
   'admin-upload-media': upload('media.upload', 'media.upload'),
   'admin-upload-teaching-file': upload('content.teaching.write', 'teaching_file.upload'),
-  'admin-save-ledger-entry': write('accountability.write', 'ledger.entry.create', { recentAuth: true }),
-  'admin-reconcile-payment': write('accountability.write', 'payment.reconcile', { recentAuth: true }),
-  'admin-allocate-refund': write('accountability.write', 'refund.allocate', { recentAuth: true }),
-  'admin-export': exportPolicy('operations.give_one.export', 'redemptions.export'),
-  'admin-pickup-roster': exportPolicy('operations.pickup.export', 'pickup_roster.export'),
-  'admin-campaign-report': exportPolicy('campaigns.export', 'campaign_report.export'),
-  'admin-finance-export': exportPolicy('accountability.export', 'accountability.export'),
-  'admin-overview': read('overview.read', 'overview.read'),
-  'admin-list': read('overview.read', 'admin_list.read'),
-  'admin-detail': read('overview.read', 'admin_detail.read'),
-  'admin-logout': write('overview.read', 'session.logout'),
-  'admin-step-up': read('overview.read', 'session.step_up'),
   'admin-users': read('administration.users.read', 'administrator.list'),
-  'admin-invite-user': write('administration.users.manage', 'administrator.invite', { recentAuth: true, maxBodyBytes: 100_000 }),
-  'admin-update-user': write('administration.roles.manage', 'administrator.update', { recentAuth: true, maxBodyBytes: 100_000 }),
-  'admin-sessions': read('overview.read', 'sessions.read'),
-  'admin-revoke-session': write('overview.read', 'session.revoke', { recentAuth: true, maxBodyBytes: 100_000 }),
-  'admin-audit': read('administration.audit.read', 'audit.read'),
-  'admin-audit-verify': read('administration.audit.read', 'audit.verify'),
-  'admin-audit-export': exportPolicy('administration.audit.read', 'audit.export')
+  'admin-visual-editor': read('content.website.preview', 'visual_editor.route')
 });
 
+/** OIDC/session bootstrap routes cannot require an existing session. */
 export const ADMIN_AUTH_ENDPOINTS = Object.freeze([
   'admin-login',
   'admin-oidc-callback',
   'admin-session'
 ]);
 
+/** Public routes that conditionally reveal drafts or restricted files. */
 export const PUBLIC_ADMIN_AWARE_ENDPOINTS = Object.freeze({
+  'media': 'media.read',
   'public-catalog': 'catalog.products.read',
   'public-content': 'content.website.preview',
   'public-teaching': 'content.teaching.preview',
