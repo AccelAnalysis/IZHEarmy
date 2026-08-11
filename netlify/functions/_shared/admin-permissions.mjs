@@ -28,6 +28,7 @@ export const PERMISSIONS = Object.freeze([
   'operations.fulfillment.write',
   'operations.batches.read',
   'operations.batches.write',
+  'operations.batches.export',
   'operations.pickup.read',
   'operations.pickup.write',
   'operations.pickup.export',
@@ -65,7 +66,7 @@ export const ROLES = Object.freeze({
       'operations.orders.read', 'operations.orders.write', 'operations.orders.export',
       'operations.give_one.read', 'operations.give_one.write', 'operations.give_one.export',
       'operations.fulfillment.read', 'operations.fulfillment.write',
-      'operations.batches.read', 'operations.batches.write',
+      'operations.batches.read', 'operations.batches.write', 'operations.batches.export',
       'operations.pickup.read', 'operations.pickup.write', 'operations.pickup.export',
       'campaigns.read'
     ]
