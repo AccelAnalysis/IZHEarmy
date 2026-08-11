@@ -300,6 +300,7 @@ test('resumable workflow uses expiring owner lease and persists stages instead o
   assert.doesNotMatch(fulfill, /lock-\$\{session\.id\}/);
   assert.match(fulfill, /ensurePaymentIndexes\(finalized\)/);
   assert.match(fulfill, /ensureGiveOneObligations/);
+  assert.match(fulfill, /resolveReconciliationTask\(`paid_order_workflow_failed:/);
 });
 
 test('payment reversal lookup falls back to order scan so a missing index cannot silently lose a refund or dispute', () => {
