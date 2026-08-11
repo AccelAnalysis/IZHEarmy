@@ -137,6 +137,35 @@ test('mission accountability uses actual refund facts and separates support held
   assert.equal(report.batchSummaries.length, 1);
 });
 
+
+test('post-production reversal tasks keep campaign figures under reconciliation', () => {
+  const reversedLine = {
+    ...line('order:post-production:line:0', { quantity: 1, gross: 3700, refund: 3700 }),
+    allocatedWholeUnitReversals: [0]
+  };
+  const records = {
+    orders: [{
+      sessionId: 'post-production', campaignId: 'CAM-1', status: 'allocated', createdAt: '2026-07-05T00:00:00Z',
+      payment: payment({
+        merchandiseGross: 3700, merchandiseNetBeforeRefunds: 3700, merchandiseRefunded: 3700,
+        totalCharged: 3700, totalRefunded: 3700, netCollected: 0, availableAfterHolds: 0
+      }, { refundStatus: 'full' }),
+      lineSettlements: [reversedLine],
+      fulfillment: { mode: 'church_batch', status: 'allocated' },
+      batchAssignments: [{ batchId: 'B-SUBMITTED', batchStatus: 'submitted', quantity: 1 }]
+    }],
+    codes: [], obligations: [], redemptions: [], batches: [],
+    stripeEvents: [], workflows: [],
+    reconciliationTasks: [{
+      id: 'post-production-task', type: 'post_production_reversal', sessionId: 'post-production',
+      campaignId: 'CAM-1', severity: 'critical', state: 'open'
+    }]
+  };
+  const report = campaignAccountability({ id: 'CAM-1', organization: 'Church One', title: 'Campaign', status: 'active' }, records, []);
+  assert.equal(report.operations.postSubmissionRefundExceptions, 1);
+  assert.equal(report.underReconciliation, true);
+});
+
 test('organization accountability includes general ledger activity', () => {
   const records = { orders: [], codes: [], redemptions: [], batches: [] };
   const ledger = [
