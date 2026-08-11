@@ -4,7 +4,8 @@ import { DEFAULT_CATALOG } from '../netlify/functions/_shared/catalog-defaults.m
 import {
   applyCatalogMigrations,
   STAPLE_PLACEHOLDER_MIGRATION_ID,
-  STAPLE_PLACEHOLDER_PRODUCTS
+  STAPLE_PLACEHOLDER_PRODUCTS,
+  SUPPORT_ELIGIBILITY_MIGRATION_ID
 } from '../netlify/functions/_shared/catalog-migrations.mjs';
 import { publicCatalog, validateCatalog } from '../netlify/functions/_shared/catalog-rules.mjs';
 
@@ -34,11 +35,12 @@ function catalogWithStapleCollection() {
   });
 }
 
-test('does not mark the Staple migration before the collection exists', () => {
+test('does not mark the Staple migration before the collection exists while applying independent support eligibility migration', () => {
   const catalog = validateCatalog(structuredClone(DEFAULT_CATALOG));
   const result = applyCatalogMigrations(catalog, { now: '2026-08-10T00:00:00.000Z' });
-  assert.equal(result.changed, false);
+  assert.equal(result.changed, true);
   assert.deepEqual(result.addedProductIds, []);
+  assert.equal(result.catalog.appliedMigrations.includes(SUPPORT_ELIGIBILITY_MIGRATION_ID), true);
   assert.equal(result.catalog.appliedMigrations.includes(STAPLE_PLACEHOLDER_MIGRATION_ID), false);
 });
 
@@ -58,7 +60,9 @@ test('adds seven safe draft placeholders to the Staple Collection', () => {
   assert.ok(staples.every((product) => product.images.length === 0));
   assert.ok(staples.every((product) => product.variants.length === 6));
   assert.ok(staples.every((product) => product.variants.every((variant) => variant.availabilityStatus === 'paused')));
+  assert.ok(staples.every((product) => product.supportEligible === true));
   assert.ok(validated.appliedMigrations.includes(STAPLE_PLACEHOLDER_MIGRATION_ID));
+  assert.ok(validated.appliedMigrations.includes(SUPPORT_ELIGIBILITY_MIGRATION_ID));
   assert.equal(publicCatalog(validated).products.some((product) => product.collectionId === 'staple_collection'), false);
 });
 
@@ -91,6 +95,7 @@ test('keeps a manually created matching product and adds only the missing placeh
     unitAmount: 3700,
     currency: 'usd',
     lookupKey: 'izhe_manual_your_friend_usd',
+    supportEligible: false,
     giveOneEligible: true,
     giveOneUnitsPerPaidUnit: 1,
     status: 'draft',

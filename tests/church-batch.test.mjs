@@ -127,7 +127,9 @@ test('batch assembly includes only paid church-pickup campaign order items', () 
   assert.equal(selection.unitsIncluded, 2);
   assert.equal(selection.items[0].sourceItemId, 'order:cs_pickup:0');
   assert.ok(selection.excluded.some((item) => item.sessionId === 'cs_ship' && item.reasons.includes('not_church_pickup')));
-  assert.ok(selection.excluded.some((item) => item.sessionId === 'cs_refund' && item.reasons.includes('refunded_or_disputed')));
+  assert.ok(selection.excluded.some((item) => item.sessionId === 'cs_refund' && item.reasons.includes('refund_or_reversal_allocation_required')));
+  assert.ok(selection.excluded.some((item) => item.sessionId === 'cs_review' && item.reasons.includes('refund_or_reversal_allocation_required')));
+  assert.ok(selection.excluded.some((item) => item.sessionId === 'cs_cancel' && item.reasons.includes('cancelled')));
 });
 
 test('previously allocated source items are not duplicated and editable batches are selected safely', () => {

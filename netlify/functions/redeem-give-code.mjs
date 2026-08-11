@@ -2,6 +2,7 @@ import { getStore } from '@netlify/blobs';
 import { loadCatalog } from './_shared/catalog-service.mjs';
 import { normalizeCode, createConfirmation } from './_shared/codes.mjs';
 import { appendStatusHistory, effectiveCodeStatus } from './_shared/operations-rules.mjs';
+import { createReconciliationTask } from './_shared/payment-service.mjs';
 import { json, methodNotAllowed, cleanText, requireFields } from './_shared/http.mjs';
 
 function redemptionProduct(record, catalog) {
@@ -13,6 +14,27 @@ function redemptionProduct(record, catalog) {
     variants: (current?.variants?.length ? current.variants : snapshot.variants || [])
       .filter((variant) => variant.status !== 'disabled' && !['retired', 'sold_out'].includes(variant.availabilityStatus))
   };
+}
+
+async function markObligationRedeemed(codeRecord, confirmation, now) {
+  if (!codeRecord?.obligationId) return;
+  const store = getStore('izhe-give-obligations');
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const current = await store.getWithMetadata(codeRecord.obligationId, { type: 'json', consistency: 'strong' });
+    if (!current?.data) throw Object.assign(new Error('The Give One obligation record is missing.'), { code: 'give_one_obligation_missing' });
+    if (current.data.status === 'redeemed' && current.data.redemptionId === confirmation) return;
+    if (current.data.status !== 'active') throw Object.assign(new Error('The Give One obligation is no longer active.'), { code: 'give_one_obligation_not_active' });
+    const next = {
+      ...current.data,
+      status: 'redeemed',
+      redemptionId: confirmation,
+      updatedAt: now,
+      statusHistory: [...(current.data.statusHistory || []), { status: 'redeemed', at: now, actor: 'recipient', reason: 'give_one_claim_redeemed' }].slice(-100)
+    };
+    const saved = await store.setJSON(codeRecord.obligationId, next, { onlyIfMatch: current.etag });
+    if (saved.modified) return;
+  }
+  throw Object.assign(new Error('The Give One obligation changed while redemption was being recorded.'), { code: 'give_one_obligation_conflict' });
 }
 
 export default async (request) => {
@@ -27,6 +49,7 @@ export default async (request) => {
     if (!current) return json({ error: 'This claim code was not found.' }, 404);
     const codeStatus = effectiveCodeStatus(current.data);
     if (codeStatus === 'expired') return json({ error: 'This claim code has expired. Contact IZHE support.' }, 409);
+    if (codeStatus === 'suspended_payment_review') return json({ error: 'This Give One claim is temporarily unavailable while its source payment is being reviewed. Please try again later or contact IZHE support.' }, 409);
     if (codeStatus !== 'active') return json({ error: 'This claim code has already been redeemed, cancelled, or replaced.' }, 409);
     const { catalog } = await loadCatalog();
     const product = redemptionProduct(current.data, catalog);
@@ -46,6 +69,7 @@ export default async (request) => {
     const redemption = {
       confirmation,
       code,
+      obligationId: current.data.obligationId || '',
       productId: product.id,
       productName: product.name,
       variantId: variant.id,
@@ -84,9 +108,22 @@ export default async (request) => {
     if (!updateResult.modified) return json({ error: 'This code was redeemed in another session. Refresh and try again.' }, 409);
     const redemptions = getStore('izhe-redemptions');
     await redemptions.setJSON(confirmation, redemption, { onlyIfNew: true });
+    try {
+      await markObligationRedeemed(updatedCode, confirmation, now);
+    } catch (error) {
+      await createReconciliationTask({
+        type: 'give_one_redemption_state_mismatch',
+        sessionId: updatedCode.sourceSessionId || '',
+        campaignId: updatedCode.campaignId || '',
+        sourceId: confirmation,
+        severity: 'critical',
+        message: 'Give One redemption succeeded but its deterministic obligation state requires repair.',
+        details: { obligationId: updatedCode.obligationId || '', code: error.code || 'obligation_update_failed' }
+      }).catch(() => {});
+    }
     return json({ success: true, confirmation, status: redemption.status });
   } catch (error) {
-    console.error('redeem-give-code', error);
+    console.error('redeem-give-code', String(error?.message || error).slice(0, 500));
     return json({ error: error.message || 'Redemption could not be completed.' }, 400);
   }
 };

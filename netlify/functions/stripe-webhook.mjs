@@ -1,12 +1,36 @@
 import { getStore } from '@netlify/blobs';
 import Stripe from 'stripe';
-import { fulfillPaidSession, cancelUnusedGiveCodes } from './_shared/fulfill.mjs';
+import { lockCampaignSupportPolicy } from './_shared/campaign-service.mjs';
+import { fulfillPaidSession } from './_shared/fulfill.mjs';
+import { processDisputeEvent, processRefundEvent } from './_shared/payment-event-service.mjs';
+import { markPaymentEventOnOrder } from './_shared/payment-service.mjs';
+import * as stripeEventService from './_shared/stripe-event-service.mjs';
+
+const { completeStripeEvent, failStripeEvent, linkStripeEventOrder, updateStripeEventStage } = stripeEventService;
+
+const REFUND_EVENTS = new Set([
+  'charge.refunded',
+  'refund.created',
+  'refund.updated',
+  'refund.failed'
+]);
+
+const DISPUTE_EVENTS = new Set([
+  'charge.dispute.created',
+  'charge.dispute.updated',
+  'charge.dispute.closed',
+  'charge.dispute.funds_reinstated',
+  'charge.dispute.funds_withdrawn'
+]);
 
 async function deleteCheckoutDraft(session) {
   const draftId = session?.metadata?.draftId;
   if (!draftId) return;
-  const drafts = getStore('izhe-checkout-drafts');
-  await drafts.delete(draftId).catch(() => {});
+  await getStore('izhe-checkout-drafts').delete(draftId).catch(() => {});
+}
+
+function eventCreatedAt(event) {
+  return Number.isFinite(Number(event?.created)) ? new Date(Number(event.created) * 1000).toISOString() : new Date().toISOString();
 }
 
 export default async (request) => {
@@ -21,27 +45,78 @@ export default async (request) => {
   try {
     event = await stripe.webhooks.constructEventAsync(rawBody, signature, process.env.STRIPE_WEBHOOK_SECRET);
   } catch (error) {
-    console.error('stripe-webhook signature', error);
-    return new Response(`Webhook signature verification failed: ${error.message}`, { status: 400 });
+    console.error('stripe-webhook signature verification failed', String(error?.message || 'invalid signature').slice(0, 300));
+    return new Response('Webhook signature verification failed', { status: 400 });
   }
 
   try {
+    const begun = await stripeEventService.beginStripeEventReceipt(event, rawBody);
+    if (begun.alreadyProcessed) return new Response('ok');
+  } catch (error) {
+    console.error('stripe-webhook receipt persistence failed', String(error?.message || error).slice(0, 300));
+    return new Response('Webhook receipt persistence failed', { status: 500 });
+  }
+
+  try {
+    const createdAt = eventCreatedAt(event);
     if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
+      await updateStripeEventStage(event.id, 'payment_verified');
       const session = event.data.object;
-      if (session.payment_status === 'paid' || event.type === 'checkout.session.async_payment_succeeded') await fulfillPaidSession(stripe, session);
+      if (session.payment_status === 'paid' || event.type === 'checkout.session.async_payment_succeeded') {
+        const order = await fulfillPaidSession(stripe, session, { eventId: event.id, eventCreatedAt: createdAt });
+        if (order.campaignId && order.supportPolicy?.policyVersion && order.accountabilityProjection?.qualifying) {
+          await lockCampaignSupportPolicy(order.campaignId, order.supportPolicy.policyVersion, order.payment?.paidAt || createdAt);
+        }
+        await linkStripeEventOrder(event.id, order.sessionId, {
+          checkoutSessionId: order.sessionId,
+          paymentIntentId: order.payment?.paymentIntentId || order.paymentIntentId || ''
+        });
+        await markPaymentEventOnOrder(order.sessionId, event.id, createdAt).catch(() => null);
+      }
+      await completeStripeEvent(event.id, { reconciliationState: session.payment_status === 'paid' || event.type === 'checkout.session.async_payment_succeeded' ? 'reconciled' : 'awaiting_payment' });
+      return new Response('ok');
     }
+
     if (event.type === 'checkout.session.async_payment_failed' || event.type === 'checkout.session.expired') {
+      await updateStripeEventStage(event.id, 'checkout_closed_without_payment');
       await deleteCheckoutDraft(event.data.object);
+      await completeStripeEvent(event.id, { reconciliationState: 'reconciled' });
+      return new Response('ok');
     }
-    if (event.type === 'charge.refunded') {
-      await cancelUnusedGiveCodes(event.data.object.payment_intent, 'charge_refunded');
+
+    if (REFUND_EVENTS.has(event.type)) {
+      await updateStripeEventStage(event.id, 'refund_reconciliation');
+      const result = await processRefundEvent(stripe, event);
+      await linkStripeEventOrder(event.id, result.sessionId);
+      await markPaymentEventOnOrder(result.sessionId, event.id, createdAt).catch(() => null);
+      await completeStripeEvent(event.id, { reconciliationState: result.reconciliationStatus || 'reconciled' });
+      return new Response('ok');
     }
-    if (event.type === 'charge.dispute.created') {
-      await cancelUnusedGiveCodes(event.data.object.payment_intent, 'charge_disputed');
+
+    if (DISPUTE_EVENTS.has(event.type)) {
+      await updateStripeEventStage(event.id, 'dispute_reconciliation');
+      const result = await processDisputeEvent(stripe, event);
+      await linkStripeEventOrder(event.id, result.sessionId);
+      await markPaymentEventOnOrder(result.sessionId, event.id, createdAt).catch(() => null);
+      await completeStripeEvent(event.id, { reconciliationState: result.reconciliationStatus || 'reconciled' });
+      return new Response('ok');
     }
+
+    await completeStripeEvent(event.id, {
+      processingState: 'ignored_supported_noop',
+      reconciliationState: 'not_applicable',
+      fields: { ignoredEventType: event.type }
+    });
     return new Response('ok');
   } catch (error) {
-    console.error('stripe-webhook processing', error);
-    return new Response('Webhook processing failed', { status: 500 });
+    const reconciliationRequired = Boolean(error?.reconciliationRequired || error?.code === 'stripe_event_unmatched');
+    await failStripeEvent(event.id, error, { reconciliationRequired }).catch(() => null);
+    console.error('stripe-webhook processing failed', {
+      eventId: event.id,
+      eventType: event.type,
+      code: String(error?.code || error?.name || 'processing_failed').slice(0, 120),
+      message: String(error?.message || 'Stripe event processing failed').slice(0, 300)
+    });
+    return new Response(reconciliationRequired ? 'Webhook reconciliation required' : 'Webhook processing failed', { status: 500 });
   }
 };

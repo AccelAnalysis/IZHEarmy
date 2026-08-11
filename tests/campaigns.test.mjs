@@ -22,6 +22,33 @@ const baseCampaign = {
   id: 'CAM-1', slug: 'church-one', title: 'Church One Campaign', organization: 'Church One', collectionIds: ['collection_1'], productIds: [], status: 'active', publishStatus: 'published',
   fulfillmentMethod: 'church_batch', churchBatch, supportModel: 'percentage', supportRate: 10, startAt: '2026-07-01T00:00:00.000Z', endAt: '2026-07-31T23:59:59.000Z'
 };
+const percentagePolicy = {
+  campaignId: 'CAM-1', policyId: 'CAM-1:support', policyVersion: 'CAM-1:support:v1', version: 1,
+  supportModel: 'percentage', supportRate: 10, currency: 'usd', eligibleProductBasis: 'explicit_support_eligible_snapshot',
+  eligibleUnitBasis: 'settled_whole_support_eligible_units', calculationPolicyVersion: 'eligible-settlement-v1'
+};
+
+function paidPayment(totalCharged, merchandiseGross) {
+  return {
+    captureStatus: 'paid', refundStatus: 'none', disputeStatus: 'none', reconciliationStatus: 'reconciled', currency: 'usd',
+    amounts: {
+      merchandiseGross, discountTotal: 0, merchandiseNetBeforeRefunds: merchandiseGross, merchandiseRefunded: 0,
+      shippingCollected: totalCharged - merchandiseGross, shippingRefunded: 0, taxCollected: 0, taxRefunded: 0,
+      totalCharged, totalRefunded: 0, refundUnallocated: 0, openDisputeAmount: 0, lostDisputeAmount: 0,
+      netCollected: totalCharged, amountHeld: 0, availableAfterHolds: totalCharged
+    }
+  };
+}
+
+function line(lineId, unitAmount, quantity) {
+  const gross = unitAmount * quantity;
+  return {
+    lineId, productId: 'shirt-1', quantityPurchased: quantity, grossMerchandiseAmount: gross, allocatedDiscount: 0,
+    netMerchandiseBeforeRefunds: gross, allocatedMerchandiseRefund: 0, netRecognizedMerchandiseRevenue: gross,
+    supportEligible: true, supportEligibleQuantity: quantity, giveOneEligible: true, giveOneUnitsPerPaidUnit: 1,
+    allocatedWholeUnitReversals: [], unresolvedAllocationAmount: 0, reconciliationState: 'reconciled'
+  };
+}
 
 test('campaign restricts products by selected collections and products', () => {
   assert.equal(campaignAllowsProduct(baseCampaign, catalog.products[0]), true);
@@ -71,17 +98,27 @@ test('legacy individual-shipping campaign loads with a safe empty churchBatch ob
   assert.equal(clean.churchBatch.publicInstructions, '');
 });
 
-test('campaign support models calculate in cents', () => {
+test('campaign support models calculate in cents and fixed support requires qualifying activity', () => {
   assert.equal(calculateSupportAmount(baseCampaign, { revenue: 10000, soldUnits: 4 }), 1000);
   assert.equal(calculateSupportAmount({ ...baseCampaign, supportModel: 'per_unit', supportRate: 250 }, { revenue: 10000, soldUnits: 4 }), 1000);
-  assert.equal(calculateSupportAmount({ ...baseCampaign, supportModel: 'fixed', supportRate: 5000 }, { revenue: 10000, soldUnits: 4 }), 5000);
+  assert.equal(calculateSupportAmount({ ...baseCampaign, supportModel: 'fixed', supportRate: 5000 }, { revenue: 10000, soldUnits: 4, qualifyingActivity: false }), 0);
+  assert.equal(calculateSupportAmount({ ...baseCampaign, supportModel: 'fixed', supportRate: 5000 }, { revenue: 10000, soldUnits: 4, qualifyingActivity: true }), 5000);
 });
 
-test('campaign metrics retain accountability and add pickup operational counts without Give One mixing', () => {
+test('campaign metrics use canonical paid settlement while keeping pickup operations separate from Give One', () => {
   const report = computeCampaignMetrics(baseCampaign, {
     orders: [
-      { sessionId: 'cs1', campaignId: 'CAM-1', status: 'ready_for_pickup', amountTotal: 5000, fulfillment: { mode: 'church_batch', status: 'ready_for_pickup' }, items: [{ unitAmount: 2000, quantity: 2 }], batchAssignments: [{ itemIndex: 0, quantity: 2, batchStatus: 'received' }] },
-      { sessionId: 'cs2', campaignId: 'CAM-1', status: 'paid', amountTotal: 3000, fulfillment: { mode: 'individual_shipping', status: 'paid' }, items: [{ unitAmount: 2500, quantity: 1 }] }
+      {
+        sessionId: 'cs1', campaignId: 'CAM-1', status: 'ready_for_pickup', paymentStatus: 'paid', payment: paidPayment(5000, 4000),
+        supportPolicy: percentagePolicy, lineSettlements: [line('order:cs1:line:0', 2000, 2)],
+        fulfillment: { mode: 'church_batch', status: 'ready_for_pickup' }, items: [{ unitAmount: 2000, quantity: 2 }],
+        batchAssignments: [{ itemIndex: 0, quantity: 2, batchStatus: 'received' }]
+      },
+      {
+        sessionId: 'cs2', campaignId: 'CAM-1', status: 'paid', paymentStatus: 'paid', payment: paidPayment(3000, 2500),
+        supportPolicy: percentagePolicy, lineSettlements: [line('order:cs2:line:0', 2500, 1)],
+        fulfillment: { mode: 'individual_shipping', status: 'paid' }, items: [{ unitAmount: 2500, quantity: 1 }]
+      }
     ],
     codes: [{ campaignId: 'CAM-1', status: 'redeemed' }, { campaignId: 'CAM-1', status: 'active' }],
     redemptions: [{ campaignId: 'CAM-1', status: 'pending_fulfillment' }], batches: [{ campaignId: 'CAM-1', status: 'received' }]
@@ -90,6 +127,8 @@ test('campaign metrics retain accountability and add pickup operational counts w
   assert.equal(report.revenue, 6500);
   assert.equal(report.grossCollected, 8000);
   assert.equal(report.soldUnits, 3);
+  assert.equal(report.supportAmount, 650);
+  assert.equal(report.reconciliationRequired, false);
   assert.equal(report.churchPickupOrderCount, 1);
   assert.equal(report.churchPickupUnitCount, 2);
   assert.equal(report.batchedChurchPickupUnits, 2);

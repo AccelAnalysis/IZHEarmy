@@ -6,6 +6,7 @@ import { loadCatalog, publicCatalog } from './_shared/catalog-service.mjs';
 import { campaignAllowsProduct, campaignIsPurchasable } from './_shared/campaign-rules.mjs';
 import { findCampaignBySlug } from './_shared/campaign-service.mjs';
 import { buildCheckoutSessionConfiguration, churchBatchReadiness, createFulfillmentSnapshot, resolveFulfillmentMode, stablePickupCode } from './_shared/fulfillment-rules.mjs';
+import { supportPolicySnapshot } from './_shared/support-policy.mjs';
 import { json, methodNotAllowed } from './_shared/http.mjs';
 
 async function resolvePrices(stripe, cart, productMap) {
@@ -18,9 +19,43 @@ async function resolvePrices(stripe, cart, productMap) {
 
 function orderItemSnapshot(product, item) {
   const variant = product.variants?.find((candidate) => candidate.id === item.variantId) || null;
-  return { productId: product.id, productName: product.name, shortName: product.shortName, productType: product.productType, collectionId: product.collectionId, sku: product.sku, lookupKey: product.lookupKey, unitAmount: product.unitAmount, currency: product.currency, giveOneEligible: product.giveOneEligible, giveOneUnitsPerPaidUnit: product.giveOneUnitsPerPaidUnit, productImage: product.primaryImage?.url || product.images?.[0]?.url || '', variantId: item.variantId, fit: variant?.fit || item.fit || '', size: variant?.size || item.size || '', color: variant?.color || item.color || '', variantSku: variant?.sku || '', eligibleGiftVariants: (product.variants || []).filter((candidate) => candidate.status !== 'disabled' && !['retired', 'sold_out'].includes(candidate.availabilityStatus)).map((candidate) => ({ id: candidate.id, fit: candidate.fit, size: candidate.size, color: candidate.color, sku: candidate.sku })), quantity: item.quantity };
+  return {
+    productId: product.id,
+    productName: product.name,
+    shortName: product.shortName,
+    productType: product.productType,
+    collectionId: product.collectionId,
+    sku: product.sku,
+    lookupKey: product.lookupKey,
+    unitAmount: product.unitAmount,
+    currency: product.currency,
+    supportEligible: Boolean(product.supportEligible),
+    giveOneEligible: product.giveOneEligible,
+    giveOneUnitsPerPaidUnit: product.giveOneUnitsPerPaidUnit,
+    productImage: product.primaryImage?.url || product.images?.[0]?.url || '',
+    variantId: item.variantId,
+    fit: variant?.fit || item.fit || '',
+    size: variant?.size || item.size || '',
+    color: variant?.color || item.color || '',
+    variantSku: variant?.sku || '',
+    eligibleGiftVariants: (product.variants || []).filter((candidate) => candidate.status !== 'disabled' && !['retired', 'sold_out'].includes(candidate.availabilityStatus)).map((candidate) => ({ id: candidate.id, fit: candidate.fit, size: candidate.size, color: candidate.color, sku: candidate.sku })),
+    quantity: item.quantity
+  };
 }
-function campaignSnapshot(campaign) { return campaign ? { id: campaign.id, slug: campaign.slug, title: campaign.title, organization: campaign.organization, ministryObjective: campaign.ministryObjective, fulfillmentMethod: campaign.fulfillmentMethod, supportModel: campaign.supportModel, supportRate: campaign.supportRate, supportLabel: campaign.supportLabel } : null; }
+function campaignSnapshot(campaign, supportPolicy) {
+  return campaign ? {
+    id: campaign.id,
+    slug: campaign.slug,
+    title: campaign.title,
+    organization: campaign.organization,
+    ministryObjective: campaign.ministryObjective,
+    fulfillmentMethod: campaign.fulfillmentMethod,
+    supportModel: supportPolicy?.supportModel || campaign.supportModel,
+    supportRate: supportPolicy?.supportRate ?? campaign.supportRate,
+    supportLabel: supportPolicy?.supportLabel || campaign.supportLabel,
+    supportPolicyVersion: supportPolicy?.policyVersion || ''
+  } : null;
+}
 
 export default async (request) => {
   if (request.method !== 'POST') return methodNotAllowed(['POST']);
@@ -39,11 +74,33 @@ export default async (request) => {
     if (campaign && cart.some((item) => !campaignAllowsProduct(campaign, productMap.get(item.productId)))) return json({ error: 'A product in your cart is not available through this campaign.' }, 409);
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY); const prices = await resolvePrices(stripe, cart, productMap); const origin = new URL(request.url).origin; const siteUrl = (process.env.URL || process.env.SITE_URL || origin).replace(/\/$/, '');
     const shippingCents = Number.parseInt(process.env.IZHE_SHIPPING_CENTS || '699', 10); const shippingRateId = String(process.env.STRIPE_STANDARD_SHIPPING_RATE_ID || '').trim();
-    draftId = randomUUID(); const drafts = getStore('izhe-checkout-drafts'); const items = cart.map((item) => orderItemSnapshot(productMap.get(item.productId), item)); const campaignData = campaignSnapshot(campaign);
-    const draftRecord = { cart, items, catalogRevision: liveCatalog.revision, campaignId: campaign?.id || '', campaignSlug: campaign?.slug || '', campaign: campaignData, fulfillment, pickupCode, status: 'created', createdAt: new Date().toISOString() };
+    draftId = randomUUID(); const drafts = getStore('izhe-checkout-drafts'); const items = cart.map((item) => orderItemSnapshot(productMap.get(item.productId), item));
+    const supportPolicy = campaign ? supportPolicySnapshot(campaign) : null;
+    const campaignData = campaignSnapshot(campaign, supportPolicy);
+    const draftRecord = {
+      cart,
+      items,
+      catalogRevision: liveCatalog.revision,
+      campaignId: campaign?.id || '',
+      campaignSlug: campaign?.slug || '',
+      campaign: campaignData,
+      supportPolicy,
+      fulfillment,
+      pickupCode,
+      status: 'created',
+      createdAt: new Date().toISOString()
+    };
     await drafts.setJSON(draftId, draftRecord, { onlyIfNew: true });
     const lineItems = cart.map((item) => ({ quantity: item.quantity, price: prices.get(productMap.get(item.productId).lookupKey).id })); const hasGiveOneItems = items.some((item) => item.giveOneEligible);
-    const metadata = { draftId, source: campaign ? 'izhe-campaign' : 'izhe-website', catalogRevision: String(liveCatalog.revision), campaignId: campaign?.id || '', campaignSlug: campaign?.slug || '', fulfillmentMode };
+    const metadata = {
+      draftId,
+      source: campaign ? 'izhe-campaign' : 'izhe-website',
+      catalogRevision: String(liveCatalog.revision),
+      campaignId: campaign?.id || '',
+      campaignSlug: campaign?.slug || '',
+      fulfillmentMode,
+      supportPolicyVersion: supportPolicy?.policyVersion || ''
+    };
     const sessionConfig = buildCheckoutSessionConfiguration({ lineItems, successUrl: `${siteUrl}/success.html?session_id={CHECKOUT_SESSION_ID}`, cancelUrl: campaign ? `${siteUrl}/campaign/${encodeURIComponent(campaign.slug)}?checkout=cancelled` : `${siteUrl}/?checkout=cancelled#collection`, metadata, mode: fulfillmentMode, campaign: campaign ? { ...campaign, churchBatch: fulfillment.pickupLocation } : null, hasGiveOneItems, shippingRateId, shippingCents });
     const session = await stripe.checkout.sessions.create(sessionConfig); await drafts.setJSON(draftId, { ...draftRecord, status: 'checkout_created', sessionId: session.id }); return json({ url: session.url });
   } catch (error) { if (draftId) await getStore('izhe-checkout-drafts').delete(draftId).catch(() => {}); console.error('create-checkout-session', error); return json({ error: error.message || 'Checkout could not be started.' }, 400); }

@@ -117,6 +117,9 @@ export function validateProduct(input, collections = []) {
   const images = validateImages(input?.images);
   if (status === 'published' && images.length === 0) throw new Error('Published products require at least one image.');
   if (images.length && !images.some((image) => image.role === 'primary')) images[0].role = 'primary';
+  const hasExplicitSupportEligibility = typeof input?.supportEligible === 'boolean';
+  const legacySupportEligibility = productType === 'apparel' && Boolean(input?.giveOneEligible);
+  if (!hasExplicitSupportEligibility && !input?.createdAt) throw new Error('Select whether this product is eligible for mission support.');
   return {
     id,
     collectionId,
@@ -135,6 +138,7 @@ export function validateProduct(input, collections = []) {
     unitAmount,
     currency: 'usd',
     lookupKey: lookupKey.slice(0, 180),
+    supportEligible: hasExplicitSupportEligibility ? input.supportEligible : legacySupportEligibility,
     giveOneEligible: Boolean(input?.giveOneEligible),
     giveOneUnitsPerPaidUnit: Boolean(input?.giveOneEligible) ? Math.max(1, Math.min(10, Number(input?.giveOneUnitsPerPaidUnit || 1))) : 0,
     status,
