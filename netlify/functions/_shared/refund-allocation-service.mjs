@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { getStore } from '@netlify/blobs';
-import { allocateLargestRemainder, cents } from './payment-rules.mjs';
+import { cents } from './payment-rules.mjs';
 
 const ORDER_STORE = 'izhe-orders';
 const clean = (value, max = 1000) => String(value ?? '').trim().slice(0, max);
@@ -28,7 +28,10 @@ function totalsFromHistory(history = []) {
 function unitValues(line) {
   const quantity = Math.max(0, cents(line?.quantityPurchased));
   if (!quantity) return [];
-  return allocateLargestRemainder(Math.max(0, cents(line?.netMerchandiseBeforeRefunds)), Array.from({ length: quantity }, (_, index) => ({ id: `${line.lineId}:unit:${index}`, basis: 1 })));
+  const total = Math.max(0, cents(line?.netMerchandiseBeforeRefunds));
+  const base = Math.floor(total / quantity);
+  const remainder = total % quantity;
+  return Array.from({ length: quantity }, (_, index) => base + (index < remainder ? 1 : 0));
 }
 
 function validateWholeUnits(line, indexes, allocationAmount) {
