@@ -7,8 +7,18 @@ const csvCell = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
 const addressText = (location) => [location?.address1, location?.address2, location?.city, location?.state, location?.postalCode, location?.country].filter(Boolean).join(', ');
 function rowsForOrder(order, campaign, batchMap) {
   const fulfillment = legacyFulfillmentSnapshot(order); if (order.campaignId !== campaign.id || fulfillment.mode !== 'church_batch') return [];
-  const assignments = new Map((order.batchAssignments || []).map((item) => [item.itemIndex, item]));
-  return (order.items || []).map((item, itemIndex) => { const assignment = assignments.get(itemIndex) || {}; const batch = assignment.batchId ? batchMap.get(assignment.batchId) : null; const handoff = order.pickupHandoff || {}; return { campaign: campaign.title, pickupCode: order.pickupCode || '', orderReference: order.sessionId || '', purchaserName: order.customerName || '', email: order.customerEmail || '', phone: order.customerPhone || '', product: item.productName || item.shortName || item.productId || '', fit: item.fit || '', size: item.size || '', color: item.color || '', quantity: Number(item.quantity || 0), amountPaid: Number(order.amountTotal || 0), currency: order.currency || 'usd', fulfillmentStatus: fulfillment.status || order.status || '', batchId: assignment.batchId || order.batchId || '', pickupLocationName: fulfillment.pickupLocation?.pickupLocationName || '', pickupAddress: addressText(fulfillment.pickupLocation), pickupWindowStart: fulfillment.pickupStartAt || '', pickupWindowEnd: fulfillment.pickupEndAt || '', pickedUpAt: handoff.pickedUpAt || '', releasedBy: handoff.releasedBy || '', recipientName: handoff.recipientName || '', exceptionNote: handoff.exceptionNote || '', batchStatus: batch?.status || assignment.batchStatus || '' }; });
+  return (order.items || []).map((item, itemIndex) => {
+    const assignments = (order.batchAssignments || []).filter((assignment) => assignment.itemIndex === itemIndex);
+    const batchIds = [...new Set(assignments.map((assignment) => assignment.batchId).filter(Boolean))];
+    const batchStatuses = [...new Set(assignments.map((assignment) => batchMap.get(assignment.batchId)?.status || assignment.batchStatus).filter(Boolean))];
+    const handoff = order.pickupHandoff || {};
+    return {
+      campaign: campaign.title, pickupCode: order.pickupCode || '', orderReference: order.sessionId || '', purchaserName: order.customerName || '', email: order.customerEmail || '', phone: order.customerPhone || '',
+      product: item.productName || item.shortName || item.productId || '', fit: item.fit || '', size: item.size || '', color: item.color || '', quantity: Number(item.quantity || 0), amountPaid: Number(order.amountTotal || 0), currency: order.currency || 'usd',
+      fulfillmentStatus: fulfillment.status || order.status || '', batchId: batchIds.join('; '), pickupLocationName: fulfillment.pickupLocation?.pickupLocationName || '', pickupAddress: addressText(fulfillment.pickupLocation), pickupWindowStart: fulfillment.pickupStartAt || '', pickupWindowEnd: fulfillment.pickupEndAt || '',
+      pickedUpAt: handoff.pickedUpAt || '', releasedBy: handoff.releasedBy || '', recipientName: handoff.recipientName || '', exceptionNote: handoff.exceptionNote || '', batchStatus: batchStatuses.join('; ')
+    };
+  });
 }
 
 export default async (request) => {
