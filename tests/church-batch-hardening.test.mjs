@@ -76,7 +76,7 @@ test('proven whole-unit refund reduces editable church batch quantity without re
 });
 
 test('ambiguous refund and open dispute are excluded from new production until reconciled', () => {
-  const refundReview = { ...pickupOrder(1), sessionId: 'cs_refund_review', payment: canonicalPayment({ refundStatus: 'allocation_required', reconciliationStatus: 'allocation_required' }) };
+  const refundReview = { ...pickupOrder(1), sessionId: 'cs_refund_review', payment: canonicalPayment({ refundStatus: 'partial', reconciliationStatus: 'allocation_required' }) };
   const dispute = { ...pickupOrder(1), sessionId: 'cs_dispute', payment: canonicalPayment({ disputeStatus: 'open', amounts: { ...canonicalPayment().amounts, openDisputeAmount: 2500, amountHeld: 2500 } }) };
   const selection = assembleChurchPickupItems({ campaign, orders: [refundReview, dispute], batches: [] });
   assert.equal(selection.items.length, 0);
@@ -123,7 +123,7 @@ test('checkout draft owns the pickup code used by paid fulfillment', () => {
   const checkout = fs.readFileSync(new URL('../netlify/functions/create-checkout-session.mjs', import.meta.url), 'utf8');
   const fulfill = fs.readFileSync(new URL('../netlify/functions/_shared/fulfill.mjs', import.meta.url), 'utf8');
   assert.match(checkout, /const pickupCode = fulfillmentMode === 'church_batch' \? stablePickupCode\(''\) : ''/);
-  assert.match(checkout, /fulfillment, pickupCode, status: 'created'/);
+  assert.match(checkout, /fulfillment,\s*pickupCode,\s*status: 'created'/s);
   assert.match(fulfill, /stablePickupCode\(draft\.pickupCode \|\| existing\?\.pickupCode \|\| ''\)/);
 });
 
