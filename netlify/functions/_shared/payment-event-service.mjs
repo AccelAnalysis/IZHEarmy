@@ -9,6 +9,7 @@ import {
 } from './payment-service.mjs';
 
 const isoFromStripeSeconds = (value) => Number.isFinite(Number(value)) ? new Date(Number(value) * 1000).toISOString() : new Date().toISOString();
+const COMMITTED_BATCH_STATUSES = new Set(['submitted', 'in_production', 'received', 'completed']);
 
 export function stripeObjectReferences(object = {}) {
   const objectType = String(object?.object || '');
@@ -44,6 +45,41 @@ function wholeUnitObligationIds(order, lines) {
   return [...new Set(ids)];
 }
 
+async function flagCommittedProduction(order, event, { kind, amount = 0, status = '' } = {}) {
+  const grouped = new Map();
+  for (const assignment of order?.batchAssignments || []) {
+    if (!assignment.batchId || !COMMITTED_BATCH_STATUSES.has(assignment.batchStatus)) continue;
+    const current = grouped.get(assignment.batchId) || { quantity: 0, sourceItemIds: [], paymentLineIds: [], batchStatus: assignment.batchStatus };
+    current.quantity += Math.max(0, cents(assignment.quantity, 1));
+    if (assignment.sourceItemId) current.sourceItemIds.push(assignment.sourceItemId);
+    if (assignment.paymentLineId) current.paymentLineIds.push(assignment.paymentLineId);
+    current.batchStatus = assignment.batchStatus;
+    grouped.set(assignment.batchId, current);
+  }
+  for (const [batchId, details] of grouped) {
+    await createReconciliationTask({
+      type: kind === 'refund' ? 'post_production_reversal' : 'post_production_payment_review',
+      sessionId: order.sessionId || '',
+      campaignId: order.campaignId || '',
+      sourceId: `${event.id}:${batchId}`,
+      severity: 'critical',
+      message: kind === 'refund'
+        ? `A verified refund affects an order already committed to production batch ${batchId}. Production history is preserved and administrator reconciliation is required.`
+        : `A Stripe dispute affects an order already committed to production batch ${batchId}. Production history is preserved and administrator reconciliation is required.`,
+      details: {
+        batchId,
+        batchStatus: details.batchStatus,
+        quantity: details.quantity,
+        reversalAmount: Math.max(0, cents(amount)),
+        reversalStatus: status,
+        sourceItemIds: [...new Set(details.sourceItemIds)],
+        paymentLineIds: [...new Set(details.paymentLineIds)],
+        stripeEventType: event.type
+      }
+    });
+  }
+}
+
 async function unmatchedReversal(event, refs, reason) {
   await createReconciliationTask({
     type: 'unmatched_stripe_event',
@@ -73,6 +109,10 @@ export async function processRefundEvent(stripe, event) {
     source: 'stripe-webhook',
     reason: event.type
   });
+
+  if (proposal.payment.amounts.totalRefunded > 0) {
+    await flagCommittedProduction(saved, event, { kind: 'refund', amount: proposal.payment.amounts.totalRefunded, status: proposal.payment.refundStatus });
+  }
 
   if (proposal.fullRefund) {
     await transitionGiveOneObligations({
@@ -143,6 +183,10 @@ export async function processDisputeEvent(stripe, event) {
     source: 'stripe-webhook',
     reason: event.type
   });
+
+  if (disputedAmount > 0 && (disputeStatus === 'open' || disputeStatus === 'lost')) {
+    await flagCommittedProduction(saved, event, { kind: 'dispute', amount: disputedAmount, status: disputeStatus });
+  }
 
   const taskId = `open_dispute:${match.sessionId}:${disputeId}`;
   if (disputeStatus === 'open' || ['charge.dispute.created', 'charge.dispute.updated', 'charge.dispute.funds_withdrawn'].includes(event.type)) {
