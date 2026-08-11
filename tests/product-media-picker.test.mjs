@@ -24,6 +24,7 @@ test('shared Media Library picker preserves safe selection and eligibility behav
   assert.match(pickerSource, /Clear Selection/);
   assert.match(pickerSource, /Use Selected Media/);
   assert.match(pickerSource, /This asset is not eligible in the current context/);
-  assert.match(productSource, /media\.url \|\| media\.thumbnailUrl/);
-  assert.match(productSource, /media\.altText/);
+  assert.match(productSource, /url: media\.thumbnailUrl/);
+  assert.match(productSource, /alt: media\.altText/);
+  assert.match(productSource, /productAccuracyStatus === 'confirmed'/);
 });
