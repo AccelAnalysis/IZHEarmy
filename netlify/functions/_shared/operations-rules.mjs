@@ -127,7 +127,7 @@ function allocationCoverage(items = [], itemCount = 0, assignments = []) {
   const assigned = new Map();
   for (const assignment of assignments || []) {
     if (assignment.itemIndex == null) continue;
-    assigned.set(assignment.itemIndex, (assigned.get(assignment.itemIndex) || 0) + Math.max(0, Number(assignment.quantity || 0)));
+    assigned.set(assignment.itemIndex, (assigned.get(assignment.itemIndex) || 0) + Math.max(1, Number(assignment.quantity || 1)));
   }
   const allAssigned = [...requirements].every(([index, quantity]) => (assigned.get(index) || 0) >= quantity);
   return { allAssigned, requirements, assigned };
