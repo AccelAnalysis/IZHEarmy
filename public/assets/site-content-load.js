@@ -22,6 +22,11 @@ function IZHE_revealBackgroundWhenReady(element,url){
   image.src=url;
   if(image.complete&&image.naturalWidth>0)reveal();
 }
+function IZHE_applyPreviewRecords(records){
+  if(!records||typeof records!=='object'||Array.isArray(records))return;
+  window.IZHE_CONTENT_DATA={...(window.IZHE_CONTENT_DATA||{}),records};
+  IZHE_applyContent(records,{visualFrame:true});
+}
 (async()=>{
   const foregroundFallbacks=[
     {image:document.querySelector('#story img'),src:document.querySelector('#story img')?.getAttribute('src')||''},
@@ -42,6 +47,15 @@ function IZHE_revealBackgroundWhenReady(element,url){
       [document.getElementById('book'),IZHE_fieldsFor(records,'home-book').backgroundImage],
       [document.getElementById('church'),IZHE_fieldsFor(records,'home-church').backgroundImage]
     ].forEach(([element,url])=>IZHE_revealBackgroundWhenReady(element,url));
+    if(IZHE_visualFrame){
+      window.addEventListener('message',(event)=>{
+        if(event.origin!==window.location.origin||event.source!==window.parent)return;
+        const message=event.data;
+        if(!message||message.type!=='izhe-admin-preview-apply'||message.version!==1)return;
+        IZHE_applyPreviewRecords(message.records);
+      });
+      window.parent.postMessage({type:'izhe-preview-ready',version:1},window.location.origin);
+    }
     if(IZHE_contentPreview&&!IZHE_visualFrame){const badge=document.createElement('div');badge.className='fixed bottom-5 left-5 z-[100] bg-amber-400 text-slate-950 rounded-full px-4 py-2 text-xs font-extrabold shadow-xl';badge.textContent=`CONTENT PREVIEW · REVISION ${data.revision}`;document.body.append(badge);}
     window.dispatchEvent(new CustomEvent('izhe:content-ready',{detail:window.IZHE_CONTENT_DATA}));
   }catch(error){IZHE_releasePendingContentMedia();console.error('structured content',error);window.dispatchEvent(new CustomEvent('izhe:content-error',{detail:{message:error.message}}));}
