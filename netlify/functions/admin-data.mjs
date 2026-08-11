@@ -1,56 +1,50 @@
 import { getStore } from '@netlify/blobs';
-import { requireAdmin } from './_shared/admin-auth.mjs';
-import { computeOperationalAlerts, effectiveCodeStatus, filterRecords, summarizeOperations } from './_shared/operations-rules.mjs';
-import { json, methodNotAllowed } from './_shared/http.mjs';
+import { adminEndpoint } from './_shared/admin-auth-v2.mjs';
+import { hasPermission } from './_shared/admin-permissions.mjs';
+import { computeOperationalAlerts, summarizeOperations } from './_shared/operations-rules.mjs';
+import { json } from './_shared/http.mjs';
 
-async function listJSON(storeName, limit = 2000) {
+async function listJSON(storeName, limit = 10_000) {
   const store = getStore(storeName);
   const { blobs } = await store.list();
-  const selected = blobs.slice(-limit).reverse();
+  const selected = blobs.filter((blob) => !blob.key.startsWith('lock-')).slice(-limit);
   const rows = [];
   for (const blob of selected) {
-    if (blob.key.startsWith('lock-')) continue;
-    const value = await store.get(blob.key, { type: 'json', consistency: 'strong' });
+    const value = await store.get(blob.key, { type: 'json', consistency: 'strong' }).catch(() => null);
     if (value) rows.push(value);
   }
   return rows;
 }
 
-function newestFirst(records) {
-  return records.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
-}
-
-export default async (request) => {
-  if (request.method !== 'GET') return methodNotAllowed(['GET']);
-  const denied = requireAdmin(request);
-  if (denied) return denied;
-  try {
-    const url = new URL(request.url);
-    const filters = { q: url.searchParams.get('q') || '', from: url.searchParams.get('from') || '', to: url.searchParams.get('to') || '' };
-    const campaignId = url.searchParams.get('campaignId') || '';
-    const pickupStatus = url.searchParams.get('pickupStatus') || '';
-    const [orders, redemptions, codes, batches] = await Promise.all([
-      listJSON('izhe-orders'), listJSON('izhe-redemptions'), listJSON('izhe-give-codes'), listJSON('izhe-production-batches')
-    ]);
-    const all = { orders, redemptions, codes, batches };
-    let filteredOrders = filterRecords(orders, { ...filters, status: url.searchParams.get('orderStatus') || '' });
-    if (campaignId) filteredOrders = filteredOrders.filter((order) => order.campaignId === campaignId);
-    if (pickupStatus) filteredOrders = filteredOrders.filter((order) => order.fulfillment?.mode === 'church_batch' && (order.fulfillment?.status || order.status) === pickupStatus);
-    const filtered = {
-      orders: newestFirst(filteredOrders),
-      redemptions: newestFirst(filterRecords(redemptions, { ...filters, status: url.searchParams.get('redemptionStatus') || '' })),
-      codes: newestFirst(filterRecords(codes, { ...filters, status: url.searchParams.get('codeStatus') || '', statusResolver: effectiveCodeStatus })).map((code) => ({ ...code, effectiveStatus: effectiveCodeStatus(code) })),
-      batches: newestFirst(filterRecords(batches, { ...filters, status: url.searchParams.get('batchStatus') || '' }))
-    };
-    return json({
-      ...filtered,
-      totals: { orders: orders.length, redemptions: redemptions.length, codes: codes.length, batches: batches.length },
-      summary: summarizeOperations(all),
-      alerts: computeOperationalAlerts(all),
-      generatedAt: new Date().toISOString()
-    }, 200, { 'cache-control': 'no-store' });
-  } catch (error) {
-    console.error('admin-data', error);
-    return json({ error: 'Administrative operations data could not be loaded.' }, 500);
-  }
-};
+export default adminEndpoint({
+  methods: ['GET'],
+  permission: 'operations.orders.read',
+  csrf: false,
+  recentAuth: false,
+  auditAction: 'operations.read',
+  rateClass: 'read'
+}, async (_request, context) => {
+  const canReadGiveOne = hasPermission(context.permissions, 'operations.give_one.read');
+  const canReadBatches = hasPermission(context.permissions, 'operations.batches.read');
+  const [orders, redemptions, codes, batches] = await Promise.all([
+    listJSON('izhe-orders'),
+    canReadGiveOne ? listJSON('izhe-redemptions') : [],
+    canReadGiveOne ? listJSON('izhe-give-codes') : [],
+    canReadBatches ? listJSON('izhe-production-batches') : []
+  ]);
+  const all = { orders, redemptions, codes, batches };
+  return json({
+    totals: {
+      orders: orders.length,
+      redemptions: canReadGiveOne ? redemptions.length : null,
+      codes: canReadGiveOne ? codes.length : null,
+      batches: canReadBatches ? batches.length : null
+    },
+    summary: summarizeOperations(all),
+    alerts: computeOperationalAlerts(all).slice(0, 50),
+    recordsIncluded: false,
+    listEndpoint: '/.netlify/functions/admin-list',
+    detailEndpoint: '/.netlify/functions/admin-detail',
+    generatedAt: new Date().toISOString()
+  });
+});
