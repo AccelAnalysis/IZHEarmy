@@ -21,7 +21,7 @@ export async function fulfillPaidSession(stripe, session) {
   if (!lock.modified) { const completed = await waitForOrder(orders, session.id); if (completed) return completed; throw new Error('Order fulfillment is already in progress.'); }
   const generatedCodes = []; const codes = getStore('izhe-give-codes');
   try {
-    const draft = await resolveDraft(session); const fulfillment = draft.fulfillment || legacyFulfillmentSnapshot({ campaignId: draft.campaignId, campaign: draft.campaign }); const churchPickup = fulfillment.mode === 'church_batch'; const pickupCode = churchPickup ? stablePickupCode(existing?.pickupCode || '') : ''; const now = new Date().toISOString();
+    const draft = await resolveDraft(session); const fulfillment = draft.fulfillment || legacyFulfillmentSnapshot({ campaignId: draft.campaignId, campaign: draft.campaign }); const churchPickup = fulfillment.mode === 'church_batch'; const pickupCode = churchPickup ? stablePickupCode(draft.pickupCode || existing?.pickupCode || '') : ''; const now = new Date().toISOString();
     await orders.setJSON(session.id, { ...(existing || {}), status: 'processing', sessionId: session.id, cart: draft.cart, items: draft.items, campaignId: draft.campaignId || '', campaignSlug: draft.campaignSlug || '', campaign: draft.campaign || null, fulfillment: { ...fulfillment, status: churchPickup ? 'awaiting_batch' : 'processing' }, pickupCode, createdAt: existing?.createdAt || now, updatedAt: now, statusHistory: existing?.statusHistory || [{ status: 'processing', at: now, actor: 'system', note: 'Stripe payment confirmation is being processed.' }] });
     for (const item of draft.items) {
       if (!item.giveOneEligible) continue;
