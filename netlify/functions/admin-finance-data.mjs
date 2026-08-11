@@ -9,17 +9,32 @@ export default async (request) => {
   const denied = requireAdmin(request);
   if (denied) return denied;
   try {
-    const [campaigns, orders, codes, redemptions, batches, ledger] = await Promise.all([
+    const [campaigns, orders, codes, obligations, redemptions, batches, ledger, reconciliationTasks, stripeEvents, workflows] = await Promise.all([
       listCampaigns(),
-      listStoreJSON('izhe-orders'),
-      listStoreJSON('izhe-give-codes'),
-      listStoreJSON('izhe-redemptions'),
-      listStoreJSON('izhe-production-batches'),
-      listLedgerEntries()
+      listStoreJSON('izhe-orders', 10000),
+      listStoreJSON('izhe-give-codes', 10000),
+      listStoreJSON('izhe-give-obligations', 10000),
+      listStoreJSON('izhe-redemptions', 10000),
+      listStoreJSON('izhe-production-batches', 10000),
+      listLedgerEntries(),
+      listStoreJSON('izhe-reconciliation-tasks', 10000),
+      listStoreJSON('izhe-stripe-events', 10000),
+      listStoreJSON('izhe-order-workflows', 10000)
     ]);
-    return json({ ...organizationAccountability(campaigns, { orders, codes, redemptions, batches }, ledger), ledgerTypes: LEDGER_TYPES, settlementStatuses: SETTLEMENT_STATUSES }, 200, { 'cache-control': 'no-store' });
+    const records = { orders, codes, obligations, redemptions, batches, reconciliationTasks, stripeEvents, workflows };
+    return json({
+      ...organizationAccountability(campaigns, records, ledger),
+      ledgerTypes: LEDGER_TYPES,
+      settlementStatuses: SETTLEMENT_STATUSES,
+      reconciliationQueue: reconciliationTasks.filter((task) => task.state !== 'resolved'),
+      stripeEventSummary: {
+        received: stripeEvents.length,
+        failedRetryable: stripeEvents.filter((event) => event.processingState === 'failed_retryable').length,
+        reconciliationRequired: stripeEvents.filter((event) => event.processingState === 'reconciliation_required').length
+      }
+    }, 200, { 'cache-control': 'no-store' });
   } catch (error) {
-    console.error('admin-finance-data', error);
+    console.error('admin-finance-data', String(error?.message || error).slice(0, 500));
     return json({ error: 'Financial accountability data could not be loaded.' }, 500);
   }
 };
