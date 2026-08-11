@@ -280,7 +280,7 @@ export function campaignAccountability(campaign, records, ledger = []) {
   const reconciliation = reconciliationCounts(campaignOrders, records, campaign.id);
   const operations = operationsCounts(campaignOrders, records);
   const latestSettlement = entries.find((entry) => entry.type === 'campaign_settlement');
-  const underReconciliation = reconciliation.unreconciledOrderCount > 0 || reconciliation.unmatchedStripeEventCount > 0 || reconciliation.refundAllocationRequiredCount > 0 || reconciliation.openDisputeCount > 0 || gifts.exceptionObligations > 0;
+  const underReconciliation = reconciliation.unreconciledOrderCount > 0 || reconciliation.unmatchedStripeEventCount > 0 || reconciliation.refundAllocationRequiredCount > 0 || reconciliation.openDisputeCount > 0 || operations.postSubmissionRefundExceptions > 0 || gifts.exceptionObligations > 0;
   return {
     campaignId: campaign.id,
     organization: campaign.organization,
