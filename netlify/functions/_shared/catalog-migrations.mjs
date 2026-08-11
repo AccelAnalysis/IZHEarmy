@@ -1,7 +1,7 @@
 export const STAPLE_PLACEHOLDER_MIGRATION_ID = '2026-08-10-staple-collection-placeholders-v1';
 
 export const STAPLE_PLACEHOLDER_PRODUCTS = Object.freeze([
-  { key: 'is_he_to_you_what_he_is_to_me', skuCode: 'IS-HE-TO-YOU', name: 'Is He to You What He Is to Me' },
+  { key: 'is_he_to_you_what_he_is_to_me', skuCode: 'IS-HE-TO-YOU', name: 'Is He to you what He is to me' },
   { key: 'your_friend', skuCode: 'YOUR-FRIEND', name: 'Your Friend' },
   { key: 'your_healer', skuCode: 'YOUR-HEALER', name: 'Your Healer' },
   { key: 'your_provider', skuCode: 'YOUR-PROVIDER', name: 'Your Provider' },
