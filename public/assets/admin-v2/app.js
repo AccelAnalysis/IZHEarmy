@@ -114,12 +114,12 @@ function accountMenu(trigger) {
 
 function buildShell() {
   const groups = groupedRoutes(session);
-  nav = el('aside', { className: 'admin-nav', 'aria-label': 'Administration navigation' }, [
+  nav = el('aside', { className: 'admin-nav', 'aria-label': 'Administration sidebar' }, [
     el('div', { className: 'nav-brand' }, [
       el('span', { className: 'brand-mark', textContent: 'IZHE' }),
       el('span', { className: 'nav-brand-copy' }, [el('strong', { textContent: 'Administration' }), el('span', { textContent: 'Secure operations' })])
     ]),
-    el('nav', { className: 'nav-scroll' }, groups.flatMap((group) => [
+    el('nav', { className: 'nav-scroll', 'aria-label': 'Administration navigation' }, groups.flatMap((group) => [
       group.label ? el('div', { className: 'nav-section', textContent: group.label }) : null,
       ...group.routes.map(navLink)
     ]))
