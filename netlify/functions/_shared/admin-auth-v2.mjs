@@ -33,13 +33,19 @@ function originAllowed(request) {
 function contentTypeAllowed(request, policy) {
   if (!policy.contentTypes?.length || !MUTATION_METHODS.has(request.method)) return true;
   const value = (request.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
-  return policy.contentTypes.some((allowed) => value === allowed || value.startsWith(`${allowed};`));
+  return policy.contentTypes.some((allowed) => value === allowed);
 }
 
-function bodySizeAllowed(request, policy) {
+async function bodySizeAllowed(request, policy) {
   if (!policy.maxBodyBytes || !MUTATION_METHODS.has(request.method)) return true;
-  const length = Number(request.headers.get('content-length') || 0);
-  return !Number.isFinite(length) || length <= policy.maxBodyBytes;
+  const declared = Number(request.headers.get('content-length') || 0);
+  if (Number.isFinite(declared) && declared > policy.maxBodyBytes) return false;
+  try {
+    const bytes = await request.clone().arrayBuffer();
+    return bytes.byteLength <= policy.maxBodyBytes;
+  } catch {
+    return false;
+  }
 }
 
 function errorResponse(message, status, id, headers = {}) {
@@ -59,11 +65,11 @@ export async function authorizeAdminRequest(request, permissionOrOptions) {
   const id = createRequestId(request);
   const policy = normalizePolicy(request, permissionOrOptions);
   if (!policy?.permission || !Array.isArray(policy.methods) || !policy.methods.length) {
-    return { response: errorResponse('Administrative endpoint security policy is incomplete.', 500, id), requestId: id, policy: null, context: null };
+    return { response: errorResponse('Administrative endpoint security policy is incomplete.', 500, id), requestId: id, policy: null, context: null, rateLimit: null };
   }
   if (!policy.methods.includes(request.method)) {
     const response = methodNotAllowed(policy.methods);
-    return { response: withSecurityHeaders(response, { requestId: id }), requestId: id, policy, context: null };
+    return { response: withSecurityHeaders(response, { requestId: id }), requestId: id, policy, context: null, rateLimit: null };
   }
 
   let context;
@@ -73,10 +79,10 @@ export async function authorizeAdminRequest(request, permissionOrOptions) {
     const message = error?.configurationError
       ? 'Administrator identity is not configured.'
       : 'Administrator session could not be validated.';
-    return { response: errorResponse(message, Number(error?.statusCode || 503), id), requestId: id, policy, context: null };
+    return { response: errorResponse(message, Number(error?.statusCode || 503), id), requestId: id, policy, context: null, rateLimit: null };
   }
   if (!context) {
-    return { response: await denied(request, id, null, policy, 'not_authenticated', 401, 'Administrator authentication is required.'), requestId: id, policy, context: null };
+    return { response: await denied(request, id, null, policy, 'not_authenticated', 401, 'Administrator authentication is required.'), requestId: id, policy, context: null, rateLimit: null };
   }
   if (!hasPermission(context.permissions, policy.permission)) {
     const limit = await checkAdminRateLimit(request, context, 'denied');
@@ -84,7 +90,8 @@ export async function authorizeAdminRequest(request, permissionOrOptions) {
       response: await denied(request, id, context, policy, 'permission_denied', limit.allowed ? 403 : 429, limit.allowed ? 'You do not have permission to perform this action.' : 'Too many denied administrative requests.', rateLimitHeaders(limit)),
       requestId: id,
       policy,
-      context
+      context,
+      rateLimit: limit
     };
   }
 
@@ -94,28 +101,30 @@ export async function authorizeAdminRequest(request, permissionOrOptions) {
       response: await denied(request, id, context, policy, 'rate_limited', 429, 'This administrative action is temporarily rate limited.', rateLimitHeaders(rate)),
       requestId: id,
       policy,
-      context
+      context,
+      rateLimit: rate
     };
   }
 
   if ((MUTATION_METHODS.has(request.method) || policy.csrf) && !originAllowed(request)) {
-    return { response: await denied(request, id, context, policy, 'invalid_origin', 403, 'Cross-origin administrative requests are not allowed.'), requestId: id, policy, context };
+    return { response: await denied(request, id, context, policy, 'invalid_origin', 403, 'Cross-origin administrative requests are not allowed.'), requestId: id, policy, context, rateLimit: rate };
   }
   if (policy.csrf && !validateCsrf(request, context)) {
-    return { response: await denied(request, id, context, policy, 'invalid_csrf', 403, 'The administrative request could not be verified.'), requestId: id, policy, context };
+    return { response: await denied(request, id, context, policy, 'invalid_csrf', 403, 'The administrative request could not be verified.'), requestId: id, policy, context, rateLimit: rate };
   }
   if (!contentTypeAllowed(request, policy)) {
-    return { response: await denied(request, id, context, policy, 'invalid_content_type', 415, 'Unsupported administrative request content type.'), requestId: id, policy, context };
+    return { response: await denied(request, id, context, policy, 'invalid_content_type', 415, 'Unsupported administrative request content type.'), requestId: id, policy, context, rateLimit: rate };
   }
-  if (!bodySizeAllowed(request, policy)) {
-    return { response: await denied(request, id, context, policy, 'body_too_large', 413, 'Administrative request body is too large.'), requestId: id, policy, context };
+  if (!await bodySizeAllowed(request, policy)) {
+    return { response: await denied(request, id, context, policy, 'body_too_large', 413, 'Administrative request body is too large.'), requestId: id, policy, context, rateLimit: rate };
   }
   if (policy.recentAuth && !recentAuthenticationSatisfied(context)) {
-    return { response: await denied(request, id, context, policy, 'recent_authentication_required', 403, 'Recent administrator authentication is required.', { 'x-izhe-step-up-required': 'true' }), requestId: id, policy, context };
+    return { response: await denied(request, id, context, policy, 'recent_authentication_required', 403, 'Recent administrator authentication is required.', { 'x-izhe-step-up-required': 'true' }), requestId: id, policy, context, rateLimit: rate };
   }
 
-  contexts.set(request, { ...context, requestId: id, policy, rateLimit: rate });
-  return { response: null, requestId: id, policy, context };
+  const enrichedContext = { ...context, requestId: id, policy, rateLimit: rate };
+  contexts.set(request, enrichedContext);
+  return { response: null, requestId: id, policy, context: enrichedContext, rateLimit: rate };
 }
 
 /**
@@ -135,7 +144,7 @@ export async function requireAdmin(request, permissionOrOptions) {
       resourceType: 'administrative_endpoint',
       resourceId: new URL(request.url).pathname,
       result: 'authorized',
-      reason: 'Legacy handler authorization passed; the underlying immutable business records retain operation-specific history.'
+      reason: 'Compatibility handler authorization passed; operation-specific records retain existing business history.'
     }).catch((error) => console.error('admin-authorized-audit', { requestId: authorized.requestId, message: error.message }));
   }
   return null;
@@ -156,10 +165,10 @@ export function getAdminContext(request) {
   return contexts.get(request) || null;
 }
 
-function safeError(error, requestId) {
+function safeError(error, id) {
   const status = Number(error?.statusCode || 500);
   const known = [400, 401, 403, 404, 409, 413, 415, 422, 429, 503].includes(status);
-  return errorResponse(known ? (error.publicMessage || error.message || 'Administrative request failed.') : 'Administrative request failed.', known ? status : 500, requestId, error?.retryAfter ? { 'retry-after': String(error.retryAfter) } : {});
+  return errorResponse(known ? (error.publicMessage || error.message || 'Administrative request failed.') : 'Administrative request failed.', known ? status : 500, id, error?.retryAfter ? { 'retry-after': String(error.retryAfter) } : {});
 }
 
 /**
@@ -189,7 +198,10 @@ export function adminEndpoint(options, handler) {
         afterSummary: audit.afterSummary || null,
         metadata: audit.metadata || null
       });
-      return withSecurityHeaders(response, { requestId: authorized.requestId, headers: rateLimitHeaders(authorized.context.rateLimit || authorized.rateLimit || { limit: 0, remaining: 0, retryAfter: 0 }) });
+      return withSecurityHeaders(response, {
+        requestId: authorized.requestId,
+        headers: rateLimitHeaders(authorized.rateLimit)
+      });
     } catch (error) {
       console.error('admin-endpoint', { requestId: authorized.requestId, action: options.auditAction, message: error.message });
       await appendAdminAuditEvent({
