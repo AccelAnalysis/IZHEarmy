@@ -29,7 +29,7 @@ function IZHE_revealBackgroundWhenReady(element,url){
   ];
   try{
     const endpoint=IZHE_visualFrame?'/.netlify/functions/admin-visual-editor':`/.netlify/functions/public-content${IZHE_contentPreview?'?preview=1':''}`;
-    const response=await fetch(endpoint,{headers:(IZHE_contentPreview||IZHE_visualFrame)&&IZHE_contentToken?{authorization:`Bearer ${IZHE_contentToken}`}:{}});
+    const response=await fetch(endpoint,{credentials:'same-origin',cache:(IZHE_contentPreview||IZHE_visualFrame)?'no-store':'default'});
     const data=await response.json();if(!response.ok)throw new Error(data.error||'Website content could not be loaded.');
     const records=IZHE_visualFrame?Object.fromEntries((data.records||[]).map((record)=>[record.key,record])):data.records||{};
     window.IZHE_CONTENT_DATA={...data,records};
