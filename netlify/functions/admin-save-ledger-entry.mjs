@@ -7,6 +7,8 @@ import { hasPermission } from './_shared/admin-permissions.mjs';
 import { readJsonBody, requiredExplanation } from './_shared/admin-request.mjs';
 import { json } from './_shared/http.mjs';
 
+// Balance validation still executes inside the serialized accountability scope via
+// validateWithinLease in accountability-admin-service -> accountability-service.
 export default adminEndpoint({
   methods: ['POST'],
   permission: 'accountability.write',
