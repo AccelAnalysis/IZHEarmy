@@ -50,7 +50,8 @@ export default async (request) => {
     const name = cleanText(input.name, 180) || id;
     const status = cleanText(input.status, 40) || 'draft';
     const requestedCampaignId = cleanText(input.campaignId, 100);
-    const requestedBatchType = cleanText(input.batchType, 60) || 'manual';
+    const requestedBatchTypeValue = cleanText(input.batchType, 60);
+    const requestedBatchType = requestedBatchTypeValue || 'manual';
     if (!BATCH_STATUSES.includes(status)) return json({ error: 'Invalid production batch status.' }, 400);
 
     const store = getStore('izhe-production-batches');
@@ -60,7 +61,7 @@ export default async (request) => {
     let batchType = requestedBatchType;
     let campaignId = requestedCampaignId;
     if (entry?.data?.batchType === 'campaign_church_pickup') {
-      if (requestedBatchType && requestedBatchType !== 'manual' && requestedBatchType !== 'campaign_church_pickup') return json({ error: 'The batch type cannot be changed after a church-pickup batch is created.' }, 400);
+      if (requestedBatchTypeValue && requestedBatchTypeValue !== 'campaign_church_pickup') return json({ error: 'The batch type cannot be changed after a church-pickup batch is created.' }, 400);
       if (requestedCampaignId && requestedCampaignId !== entry.data.campaignId) return json({ error: 'The campaign cannot be changed on an existing church-pickup batch.' }, 400);
       batchType = 'campaign_church_pickup';
       campaignId = entry.data.campaignId || requestedCampaignId;
