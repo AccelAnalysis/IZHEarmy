@@ -1,12 +1,30 @@
 import { batchProductionSummary } from './operations-rules.mjs';
+import { cents, normalizeLegacyPayment } from './payment-rules.mjs';
 
-const INELIGIBLE_ORDER_STATUSES = new Set(['cancelled', 'refunded_or_disputed', 'refund_requires_review']);
 const PAID_PROGRESS_STATUSES = new Set(['paid', 'allocated', 'in_production', 'ready_for_pickup', 'completed']);
 const ACTIVE_BATCH_STATUSES = new Set(['draft', 'ready', 'submitted', 'in_production', 'received', 'completed']);
 
+function paymentFor(order) { return order?.payment || normalizeLegacyPayment(order); }
+
 function hasConfirmedPayment(order) {
+  const payment = paymentFor(order);
+  if (payment?.captureStatus) return payment.captureStatus === 'paid';
   if (order?.paymentStatus) return order.paymentStatus === 'paid';
   return PAID_PROGRESS_STATUSES.has(order?.status);
+}
+
+function paymentReviewReason(order) {
+  const payment = paymentFor(order);
+  if (order?.status === 'cancelled') return 'cancelled';
+  if (payment.captureStatus !== 'paid') return 'not_paid';
+  if (payment.refundStatus === 'full') return 'fully_refunded';
+  if (payment.refundStatus === 'allocation_required' || payment.reconciliationStatus === 'allocation_required') return 'refund_or_reversal_allocation_required';
+  if (payment.disputeStatus === 'open' || payment.disputeStatus === 'review_required') return 'dispute_open';
+  const charged = Math.max(0, cents(payment.amounts?.totalCharged));
+  const lost = Math.max(0, cents(payment.amounts?.lostDisputeAmount));
+  if (charged > 0 && lost >= charged) return 'dispute_lost_full';
+  if (['event_unmatched', 'index_repair_required', 'manual_review_required'].includes(payment.reconciliationStatus)) return 'payment_reconciliation_required';
+  return '';
 }
 
 export function isPaidChurchPickupOrder(order, campaignId = '') {
@@ -14,16 +32,32 @@ export function isPaidChurchPickupOrder(order, campaignId = '') {
   if (campaignId && order.campaignId !== campaignId) return false;
   if (order.fulfillment?.mode !== 'church_batch') return false;
   if (!hasConfirmedPayment(order)) return false;
-  if (INELIGIBLE_ORDER_STATUSES.has(order.status)) return false;
+  if (paymentReviewReason(order)) return false;
   return true;
 }
 
 export function stableOrderSourceItems(order) {
-  return (order?.items || []).map((item, index) => ({
-    sourceType: 'order', sourceId: order.sessionId || order.id || '', sourceItemId: `order:${order.sessionId || order.id || ''}:${index}`, itemIndex: index,
-    productId: item.productId || '', productName: item.productName || item.shortName || '', variantId: item.variantId || '', fit: item.fit || '', size: item.size || '', color: item.color || '',
-    sku: item.sku || '', variantSku: item.variantSku || '', campaignId: order.campaignId || '', quantity: Math.max(1, Number(item.quantity || 1))
-  }));
+  const lines = Array.isArray(order?.lineSettlements) ? order.lineSettlements : [];
+  return (order?.items || []).map((item, index) => {
+    const line = lines[index] || null;
+    const purchased = Math.max(0, Number(line?.quantityPurchased ?? item.quantity ?? 0));
+    const reversedWholeUnits = new Set(line?.allocatedWholeUnitReversals || []);
+    const remainingQuantity = Math.max(0, purchased - reversedWholeUnits.size);
+    // Keep the PR #14 structural source ID for batch backward compatibility; preserve the
+    // canonical payment line ID separately so reconciliation can trace the exact settlement line.
+    const legacySourceItemId = `order:${order.sessionId || order.id || ''}:${index}`;
+    return {
+      sourceType: 'order',
+      sourceId: order.sessionId || order.id || '',
+      sourceItemId: legacySourceItemId,
+      paymentLineId: line?.lineId || legacySourceItemId,
+      itemIndex: index,
+      productId: item.productId || '', productName: item.productName || item.shortName || '', variantId: item.variantId || '', fit: item.fit || '', size: item.size || '', color: item.color || '',
+      sku: item.sku || '', variantSku: item.variantSku || '', campaignId: order.campaignId || '', quantity: remainingQuantity,
+      purchasedQuantity: purchased,
+      refundedWholeUnitCount: reversedWholeUnits.size
+    };
+  }).filter((item) => item.quantity > 0);
 }
 
 export function allocatedSourceItemQuantities(batches = [], { excludeBatchId = '' } = {}) {
@@ -57,19 +91,18 @@ export function assembleChurchPickupItems({ campaign, orders = [], batches = [],
     const reasons = [];
     if (order.fulfillment?.mode !== 'church_batch') reasons.push('not_church_pickup');
     if (!hasConfirmedPayment(order)) reasons.push('not_paid');
-    if (order.status === 'cancelled') reasons.push('cancelled');
-    if (order.status === 'refunded_or_disputed') reasons.push('refunded_or_disputed');
-    if (order.status === 'refund_requires_review') reasons.push('refund_requires_review');
+    const reviewReason = paymentReviewReason(order);
+    if (reviewReason) reasons.push(reviewReason);
     if (reasons.length) { excluded.push({ sessionId: order.sessionId || order.id || '', reasons: [...new Set(reasons)] }); continue; }
     for (const item of stableOrderSourceItems(order)) {
       if (!item.sourceId || seen.has(item.sourceItemId)) continue;
       const allocatedQuantity = Math.max(0, Number(allocatedElsewhere.get(item.sourceItemId) || 0));
       const remainingQuantity = Math.max(0, Number(item.quantity || 0) - allocatedQuantity);
       if (!remainingQuantity) {
-        excluded.push({ sessionId: item.sourceId, sourceItemId: item.sourceItemId, reasons: ['already_allocated'], allocatedQuantity });
+        excluded.push({ sessionId: item.sourceId, sourceItemId: item.sourceItemId, paymentLineId: item.paymentLineId, reasons: ['already_allocated'], allocatedQuantity });
         continue;
       }
-      if (allocatedQuantity) adjustments.push({ sessionId: item.sourceId, sourceItemId: item.sourceItemId, allocatedQuantity, remainingQuantity });
+      if (allocatedQuantity || item.refundedWholeUnitCount) adjustments.push({ sessionId: item.sourceId, sourceItemId: item.sourceItemId, paymentLineId: item.paymentLineId, allocatedQuantity, refundedWholeUnitCount: item.refundedWholeUnitCount, remainingQuantity });
       seen.add(item.sourceItemId);
       items.push({ ...item, quantity: remainingQuantity });
       includedOrders.add(item.sourceId);
