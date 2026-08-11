@@ -40,8 +40,10 @@ function renderResources() {
 
 async function loadTeaching() {
   const preview = new URLSearchParams(location.search).get('preview') === '1';
-  const token = preview ? localStorage.getItem('izhe-admin-token') || '' : '';
-  const response = await fetch(`/.netlify/functions/public-teaching${preview ? '?preview=1' : ''}`, { headers: preview && token ? { authorization: `Bearer ${token}` } : {} });
+  const response = await fetch(`/.netlify/functions/public-teaching${preview ? '?preview=1' : ''}`, {
+    credentials: 'same-origin',
+    cache: preview ? 'no-store' : 'default'
+  });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'The teaching library could not be loaded.');
   teachingData = data;
