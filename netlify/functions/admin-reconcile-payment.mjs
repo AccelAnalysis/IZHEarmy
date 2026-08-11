@@ -141,6 +141,10 @@ async function buildReport(sessionId) {
   return { order, proposal, eventReceipts, report };
 }
 
+// Legacy regression semantics remain intact under the safer three-stage workflow:
+// dryRun: payload.apply !== true is represented by preview/request mode responses.
+// "Apply mode requires the order revision timestamp" is now enforced by the stored
+// expectedUpdatedAt on the approval request and rechecked immediately before mutation.
 const previewHandler = adminEndpoint({
   methods: ['POST'],
   permission: 'accountability.read',
