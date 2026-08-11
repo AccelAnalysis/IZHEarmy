@@ -1,4 +1,5 @@
 import { CAMPAIGN_FULFILLMENT_METHODS, churchBatchReadiness, emptyChurchBatch, normalizeChurchBatch } from './fulfillment-rules.mjs';
+import { cents, normalizeLegacyPayment, supportForOrder } from './payment-rules.mjs';
 
 export const INQUIRY_STATUSES = ['new','contacted','discovery_scheduled','plan_sent','confirmed','converted','completed','declined'];
 export const CAMPAIGN_STATUSES = ['planning', 'scheduled', 'active', 'closed', 'fulfilled', 'cancelled'];
@@ -80,24 +81,97 @@ export function campaignIsPurchasable(campaign, now = new Date()) {
   if (end && !Number.isNaN(end.valueOf()) && now > end) return false;
   return true;
 }
-export function calculateSupportAmount(campaign, { revenue = 0, soldUnits = 0 } = {}) {
+export function calculateSupportAmount(campaign, { revenue = 0, soldUnits = 0, qualifyingActivity = false } = {}) {
   if (!campaign) return 0;
   if (campaign.supportModel === 'per_unit') return Math.round(Number(campaign.supportRate || 0) * soldUnits);
-  if (campaign.supportModel === 'fixed') return Math.round(Number(campaign.supportRate || 0));
+  if (campaign.supportModel === 'fixed') return qualifyingActivity ? Math.round(Number(campaign.supportRate || 0)) : 0;
   return Math.round(revenue * Number(campaign.supportRate || 0) / 100);
 }
-const orderUnits = (order) => (order.items || []).reduce((total, item) => total + Number(item.quantity || 0), 0);
+const orderUnits = (order) => (order.lineSettlements || order.items || []).reduce((total, item) => total + Number(item.quantityPurchased ?? item.quantity ?? 0), 0);
 const assignmentUnits = (order, predicate = () => true) => (order.batchAssignments || []).filter(predicate).reduce((sum, assignment) => sum + Number(assignment.quantity || 0), 0);
 
-export function computeCampaignMetrics(campaign, { orders = [], codes = [], redemptions = [], batches = [] } = {}) {
+function recognizedMerchandise(order) {
+  if (Array.isArray(order.lineSettlements) && order.lineSettlements.length) return order.lineSettlements.reduce((sum, line) => sum + Math.max(0, cents(line.netRecognizedMerchandiseRevenue)), 0);
+  const payment = order.payment || normalizeLegacyPayment(order);
+  return Math.max(0, cents(payment.amounts?.merchandiseNetBeforeRefunds) - cents(payment.amounts?.merchandiseRefunded));
+}
+
+function settledUnits(order) {
+  if (!Array.isArray(order.lineSettlements) || !order.lineSettlements.length) return orderUnits(order);
+  return order.lineSettlements.reduce((sum, line) => sum + Math.max(0, cents(line.quantityPurchased) - (line.allocatedWholeUnitReversals || []).length), 0);
+}
+
+export function aggregateCampaignSupport(orders = []) {
+  const projections = orders.map((order) => ({ order, support: supportForOrder(order) }));
+  let calculated = 0;
+  let held = 0;
+  const fixedByPolicy = new Map();
+  let legacyUnreconciled = 0;
+  for (const { order, support } of projections) {
+    if (!order.supportPolicy) {
+      legacyUnreconciled += 1;
+      continue;
+    }
+    if (order.supportPolicy.supportModel === 'fixed') {
+      const key = support.policyVersion || order.supportPolicy.policyVersion || 'fixed-unversioned';
+      const current = fixedByPolicy.get(key) || { rate: Math.round(Number(order.supportPolicy.supportRate || 0)), qualifyingClear: false, qualifyingHeld: false };
+      if (support.qualifying && support.calculated > 0) {
+        if (support.held > 0) current.qualifyingHeld = true;
+        else current.qualifyingClear = true;
+      }
+      fixedByPolicy.set(key, current);
+      continue;
+    }
+    calculated += support.calculated;
+    held += support.held;
+  }
+  for (const value of fixedByPolicy.values()) {
+    if (!value.qualifyingClear && !value.qualifyingHeld) continue;
+    calculated += value.rate;
+    if (!value.qualifyingClear && value.qualifyingHeld) held += value.rate;
+  }
+  return { calculated, held: Math.min(calculated, held), legacyUnreconciled };
+}
+
+export function computeCampaignMetrics(campaign, { orders = [], codes = [], obligations = [], redemptions = [], batches = [] } = {}) {
   const campaignOrders = orders.filter((item) => item.campaignId === campaign.id);
-  const eligibleOrders = campaignOrders.filter((item) => !['cancelled', 'refunded_or_disputed'].includes(item.status));
-  const revenue = eligibleOrders.reduce((sum, order) => sum + (order.items || []).reduce((itemTotal, item) => itemTotal + Number(item.unitAmount || 0) * Number(item.quantity || 0), 0), 0);
-  const grossCollected = eligibleOrders.reduce((sum, order) => sum + Number(order.amountTotal || 0), 0); const soldUnits = eligibleOrders.reduce((sum, order) => sum + orderUnits(order), 0);
-  const campaignCodes = codes.filter((item) => item.campaignId === campaign.id); const campaignRedemptions = redemptions.filter((item) => item.campaignId === campaign.id); const campaignBatches = batches.filter((item) => item.campaignId === campaign.id);
-  const redeemedCodes = campaignCodes.filter((item) => item.status === 'redeemed').length; const supportAmount = calculateSupportAmount(campaign, { revenue, soldUnits });
-  const activePickupOrders = campaignOrders.filter((order) => order.fulfillment?.mode === 'church_batch' && !['cancelled', 'refunded_or_disputed', 'refund_requires_review'].includes(order.status));
-  const pickupUnits = activePickupOrders.reduce((sum, order) => sum + orderUnits(order), 0);
-  const batchedUnits = activePickupOrders.reduce((sum, order) => sum + Math.min(orderUnits(order), assignmentUnits(order, (assignment) => assignment.batchStatus !== 'cancelled')), 0);
-  return { campaignId: campaign.id, orderCount: campaignOrders.length, revenue, grossCollected, soldUnits, codeCount: campaignCodes.length, redeemedCodeCount: redeemedCodes, claimRate: campaignCodes.length ? Math.round(redeemedCodes / campaignCodes.length * 1000) / 10 : 0, redemptionCount: campaignRedemptions.length, pendingFulfillmentCount: campaignRedemptions.filter((item) => !['fulfilled', 'cancelled'].includes(item.status)).length, batchCount: campaignBatches.length, openBatchCount: campaignBatches.filter((item) => !['completed', 'cancelled'].includes(item.status)).length, supportAmount, unitProgress: campaign.goalUnits ? Math.min(100, Math.round(soldUnits / campaign.goalUnits * 1000) / 10) : null, revenueProgress: campaign.goalAmount ? Math.min(100, Math.round(revenue / campaign.goalAmount * 1000) / 10) : null, churchPickupOrderCount: activePickupOrders.length, churchPickupUnitCount: pickupUnits, unbatchedChurchPickupUnits: Math.max(0, pickupUnits - batchedUnits), batchedChurchPickupUnits: batchedUnits, churchPickupUnitsInProduction: activePickupOrders.reduce((sum, order) => sum + assignmentUnits(order, (assignment) => assignment.batchStatus === 'in_production'), 0), readyForPickupOrderCount: activePickupOrders.filter((order) => order.fulfillment?.status === 'ready_for_pickup' || order.status === 'ready_for_pickup').length, pickedUpOrderCount: activePickupOrders.filter((order) => order.fulfillment?.status === 'picked_up').length, pickupExceptionCount: activePickupOrders.filter((order) => ['exception', 'no_show'].includes(order.fulfillment?.status) || order.status === 'exception').length, directShippingOrderCount: campaignOrders.filter((order) => order.fulfillment?.mode !== 'church_batch' && !['cancelled', 'refunded_or_disputed'].includes(order.status)).length };
+  const capturedOrders = campaignOrders.filter((item) => (item.payment?.captureStatus || (item.paymentStatus === 'paid' ? 'paid' : 'pending')) === 'paid');
+  const revenue = capturedOrders.reduce((sum, order) => sum + recognizedMerchandise(order), 0);
+  const grossCollected = capturedOrders.reduce((sum, order) => sum + Math.max(0, cents((order.payment || normalizeLegacyPayment(order)).amounts?.totalCharged)), 0);
+  const soldUnits = capturedOrders.reduce((sum, order) => sum + settledUnits(order), 0);
+  const campaignCodes = codes.filter((item) => item.campaignId === campaign.id); const campaignObligations = obligations.filter((item) => item.campaignId === campaign.id); const campaignRedemptions = redemptions.filter((item) => item.campaignId === campaign.id); const campaignBatches = batches.filter((item) => item.campaignId === campaign.id);
+  const redeemedCodes = (campaignObligations.length ? campaignObligations : campaignCodes).filter((item) => ['redeemed', 'in_fulfillment', 'fulfilled'].includes(item.status)).length;
+  const obligationCount = campaignObligations.length || campaignCodes.length;
+  const support = aggregateCampaignSupport(capturedOrders);
+  const activePickupOrders = campaignOrders.filter((order) => order.fulfillment?.mode === 'church_batch' && !['cancelled'].includes(order.status) && (order.payment?.captureStatus || order.paymentStatus) === 'paid');
+  const pickupUnits = activePickupOrders.reduce((sum, order) => sum + settledUnits(order), 0);
+  const batchedUnits = activePickupOrders.reduce((sum, order) => sum + Math.min(settledUnits(order), assignmentUnits(order, (assignment) => assignment.batchStatus !== 'cancelled')), 0);
+  return {
+    campaignId: campaign.id,
+    orderCount: campaignOrders.length,
+    revenue,
+    grossCollected,
+    soldUnits,
+    codeCount: obligationCount,
+    redeemedCodeCount: redeemedCodes,
+    claimRate: obligationCount ? Math.round(redeemedCodes / obligationCount * 1000) / 10 : 0,
+    redemptionCount: campaignRedemptions.length,
+    pendingFulfillmentCount: campaignRedemptions.filter((item) => !['fulfilled', 'cancelled'].includes(item.status)).length,
+    batchCount: campaignBatches.length,
+    openBatchCount: campaignBatches.filter((item) => !['completed', 'cancelled'].includes(item.status)).length,
+    supportAmount: support.calculated,
+    supportHeld: support.held,
+    reconciliationRequired: support.legacyUnreconciled > 0 || campaignOrders.some((order) => !['reconciled', 'legacy_reconciled'].includes((order.payment || normalizeLegacyPayment(order)).reconciliationStatus)),
+    unitProgress: campaign.goalUnits ? Math.min(100, Math.round(soldUnits / campaign.goalUnits * 1000) / 10) : null,
+    revenueProgress: campaign.goalAmount ? Math.min(100, Math.round(revenue / campaign.goalAmount * 1000) / 10) : null,
+    churchPickupOrderCount: activePickupOrders.length,
+    churchPickupUnitCount: pickupUnits,
+    unbatchedChurchPickupUnits: Math.max(0, pickupUnits - batchedUnits),
+    batchedChurchPickupUnits: batchedUnits,
+    churchPickupUnitsInProduction: activePickupOrders.reduce((sum, order) => sum + assignmentUnits(order, (assignment) => assignment.batchStatus === 'in_production'), 0),
+    readyForPickupOrderCount: activePickupOrders.filter((order) => order.fulfillment?.status === 'ready_for_pickup' || order.status === 'ready_for_pickup').length,
+    pickedUpOrderCount: activePickupOrders.filter((order) => order.fulfillment?.status === 'picked_up').length,
+    pickupExceptionCount: activePickupOrders.filter((order) => ['exception', 'no_show'].includes(order.fulfillment?.status) || order.status === 'exception').length,
+    directShippingOrderCount: campaignOrders.filter((order) => order.fulfillment?.mode !== 'church_batch' && (order.payment?.captureStatus || order.paymentStatus) === 'paid').length
+  };
 }
