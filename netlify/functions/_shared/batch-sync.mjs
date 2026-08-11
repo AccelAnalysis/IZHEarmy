@@ -25,16 +25,17 @@ async function syncOrder(item, batch, remove = false) {
   const entry = await store.getWithMetadata(item.sourceId, { type: 'json', consistency: 'strong' });
   if (!entry) return;
   const assignments = Array.isArray(entry.data.batchAssignments) ? [...entry.data.batchAssignments] : [];
-  const remaining = assignments.filter((assignment) => assignment.sourceItemId !== item.sourceItemId);
+  const remaining = assignments.filter((assignment) => !(assignment.sourceItemId === item.sourceItemId && assignment.batchId === batch.id));
   if (!remove) remaining.push({ batchId: batch.id, batchType: batch.batchType || 'manual', batchStatus: batch.status, sourceItemId: item.sourceItemId, itemIndex: item.itemIndex, quantity: item.quantity, campaignId: batch.campaignId || '' });
   const now = new Date().toISOString();
   const churchPickup = entry.data.fulfillment?.mode === 'church_batch';
   let fulfillment = entry.data.fulfillment || legacyFulfillmentSnapshot(entry.data);
-  const next = resolveOrderBatchLifecycle({ mode: churchPickup ? 'church_batch' : 'individual_shipping', orderStatus: entry.data.status, itemCount: (entry.data.items || []).length, assignments: remaining, remove });
+  const next = resolveOrderBatchLifecycle({ mode: churchPickup ? 'church_batch' : 'individual_shipping', orderStatus: entry.data.status, itemCount: (entry.data.items || []).length, items: entry.data.items || [], assignments: remaining, remove });
   const status = next.orderStatus;
   if (churchPickup && fulfillment.status !== next.fulfillmentStatus) fulfillment = appendFulfillmentHistory(fulfillment, next.fulfillmentStatus, remove ? `Removed from ${batch.id}` : `Production batch ${batch.id}`, 'admin', now);
   else if (!churchPickup) fulfillment = { ...fulfillment, status: next.fulfillmentStatus };
-  const updated = { ...entry.data, batchAssignments: remaining, batchId: remaining.length === 1 ? remaining[0].batchId : '', fulfillment, status, statusHistory: status !== entry.data.status ? appendStatusHistory(entry.data, status, remove ? `Removed from ${batch.id}` : `Production batch ${batch.id}`) : entry.data.statusHistory, updatedAt: now };
+  const batchIds = [...new Set(remaining.map((assignment) => assignment.batchId).filter(Boolean))];
+  const updated = { ...entry.data, batchAssignments: remaining, batchId: batchIds.length === 1 ? batchIds[0] : '', fulfillment, status, statusHistory: status !== entry.data.status ? appendStatusHistory(entry.data, status, remove ? `Removed from ${batch.id}` : `Production batch ${batch.id}`) : entry.data.statusHistory, updatedAt: now };
   await store.setJSON(item.sourceId, updated, { onlyIfMatch: entry.etag });
 }
 
