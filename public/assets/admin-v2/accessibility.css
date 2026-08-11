@@ -1,0 +1,41 @@
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+fieldset {
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding-inline: 0;
+}
+
+legend {
+  padding: 0;
+}
+
+[aria-busy="true"] {
+  cursor: progress;
+}
+
+@media (forced-colors: active) {
+  .status-badge::before,
+  .alert-marker {
+    border: 1px solid currentColor;
+  }
+
+  .button,
+  .nav-link,
+  input,
+  select,
+  textarea {
+    border: 1px solid ButtonText;
+  }
+}
