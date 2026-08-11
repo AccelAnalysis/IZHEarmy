@@ -88,7 +88,11 @@ export function validateRefundAllocation(order, input) {
   };
 }
 
-export async function appendRefundAllocation(sessionId, input, { expectedUpdatedAt = '', actorType = 'admin-token' } = {}) {
+export async function appendRefundAllocation(sessionId, input, {
+  expectedUpdatedAt = '',
+  actorType = 'admin-user',
+  actorId = ''
+} = {}) {
   const store = getStore(ORDER_STORE);
   const current = await store.getWithMetadata(sessionId, { type: 'json', consistency: 'strong' });
   if (!current?.data) throw Object.assign(new Error('Order was not found.'), { statusCode: 404 });
@@ -110,6 +114,7 @@ export async function appendRefundAllocation(sessionId, input, { expectedUpdated
       note,
       effectiveAt: input?.effectiveAt ? new Date(input.effectiveAt).toISOString() : at,
       actorType,
+      actorId: clean(actorId, 200),
       createdAt: at
     };
   } else {
@@ -119,13 +124,15 @@ export async function appendRefundAllocation(sessionId, input, { expectedUpdated
       kind: 'allocation',
       ...validated,
       actorType,
+      actorId: clean(actorId, 200),
       createdAt: at
     };
   }
   const next = {
     ...current.data,
     refundAllocationHistory: [...history, entry].slice(-500),
-    updatedAt: at
+    updatedAt: at,
+    lastAdministrativeActorId: clean(actorId, 200) || current.data.lastAdministrativeActorId || ''
   };
   const saved = await store.setJSON(sessionId, next, { onlyIfMatch: current.etag });
   if (!saved.modified) throw Object.assign(new Error('Order changed while the refund allocation was being appended.'), { statusCode: 409 });
