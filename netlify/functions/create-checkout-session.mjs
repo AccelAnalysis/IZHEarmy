@@ -5,7 +5,7 @@ import { normalizeCart } from './_shared/catalog.mjs';
 import { loadCatalog, publicCatalog } from './_shared/catalog-service.mjs';
 import { campaignAllowsProduct, campaignIsPurchasable } from './_shared/campaign-rules.mjs';
 import { findCampaignBySlug } from './_shared/campaign-service.mjs';
-import { buildCheckoutSessionConfiguration, churchBatchReadiness, createFulfillmentSnapshot, resolveFulfillmentMode } from './_shared/fulfillment-rules.mjs';
+import { buildCheckoutSessionConfiguration, churchBatchReadiness, createFulfillmentSnapshot, resolveFulfillmentMode, stablePickupCode } from './_shared/fulfillment-rules.mjs';
 import { json, methodNotAllowed } from './_shared/http.mjs';
 
 async function resolvePrices(stripe, cart, productMap) {
@@ -32,6 +32,7 @@ export default async (request) => {
     if (campaign && ['church_batch', 'hybrid'].includes(campaign.fulfillmentMethod) && !churchBatchReadiness(campaign).complete) return json({ error: 'This campaign cannot accept church-pickup orders until its pickup configuration is completed.' }, 409);
     const fulfillmentMode = resolveFulfillmentMode({ source: campaign ? 'campaign' : 'general_storefront', campaignMethod: campaign?.fulfillmentMethod || 'individual_shipping', requestedMode: payload.fulfillmentMode || '' });
     const fulfillment = createFulfillmentSnapshot({ campaign, mode: fulfillmentMode, source: campaign ? 'campaign' : 'general_storefront' });
+    const pickupCode = fulfillmentMode === 'church_batch' ? stablePickupCode('') : '';
     const { catalog } = await loadCatalog(); const liveCatalog = publicCatalog(catalog);
     const availableProducts = campaign ? liveCatalog.products.filter((product) => product.isPurchasable && campaignAllowsProduct(campaign, product)) : liveCatalog.products.filter((product) => product.isPurchasable);
     const cart = normalizeCart(payload.cart, availableProducts); const productMap = new Map(availableProducts.map((product) => [product.id, product]));
@@ -39,7 +40,7 @@ export default async (request) => {
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY); const prices = await resolvePrices(stripe, cart, productMap); const origin = new URL(request.url).origin; const siteUrl = (process.env.URL || process.env.SITE_URL || origin).replace(/\/$/, '');
     const shippingCents = Number.parseInt(process.env.IZHE_SHIPPING_CENTS || '699', 10); const shippingRateId = String(process.env.STRIPE_STANDARD_SHIPPING_RATE_ID || '').trim();
     draftId = randomUUID(); const drafts = getStore('izhe-checkout-drafts'); const items = cart.map((item) => orderItemSnapshot(productMap.get(item.productId), item)); const campaignData = campaignSnapshot(campaign);
-    const draftRecord = { cart, items, catalogRevision: liveCatalog.revision, campaignId: campaign?.id || '', campaignSlug: campaign?.slug || '', campaign: campaignData, fulfillment, status: 'created', createdAt: new Date().toISOString() };
+    const draftRecord = { cart, items, catalogRevision: liveCatalog.revision, campaignId: campaign?.id || '', campaignSlug: campaign?.slug || '', campaign: campaignData, fulfillment, pickupCode, status: 'created', createdAt: new Date().toISOString() };
     await drafts.setJSON(draftId, draftRecord, { onlyIfNew: true });
     const lineItems = cart.map((item) => ({ quantity: item.quantity, price: prices.get(productMap.get(item.productId).lookupKey).id })); const hasGiveOneItems = items.some((item) => item.giveOneEligible);
     const metadata = { draftId, source: campaign ? 'izhe-campaign' : 'izhe-website', catalogRevision: String(liveCatalog.revision), campaignId: campaign?.id || '', campaignSlug: campaign?.slug || '', fulfillmentMode };
