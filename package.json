@@ -6,6 +6,7 @@
   "scripts": {
     "test": "npm run test:unit && npm run check:payment-integrity && npm run check:syntax",
     "test:unit": "node --test tests/*.test.mjs",
+    "test:browser": "playwright test",
     "check:syntax": "node scripts/check-javascript-syntax.mjs",
     "check:admin-v2-security": "node --test tests/admin-v2-security.test.mjs",
     "check:payment-integrity": "node --check public/assets/admin-payment-integrity.js && node --check netlify/functions/_shared/payment-rules.mjs && node --check netlify/functions/_shared/stripe-event-service.mjs && node --check netlify/functions/_shared/order-workflow-service.mjs && node --check netlify/functions/_shared/give-one-service.mjs && node --check netlify/functions/_shared/support-policy.mjs && node --check netlify/functions/_shared/payment-service.mjs && node --check netlify/functions/_shared/payment-event-service.mjs && node --check netlify/functions/_shared/refund-allocation-service.mjs && node --check netlify/functions/_shared/catalog-rules.mjs && node --check netlify/functions/_shared/catalog-defaults.mjs && node --check netlify/functions/_shared/catalog-migrations.mjs && node --check netlify/functions/_shared/campaign-service.mjs && node --check netlify/functions/_shared/campaign-rules.mjs && node --check netlify/functions/_shared/accountability-rules.mjs && node --check netlify/functions/_shared/accountability-service.mjs && node --check netlify/functions/_shared/church-batch-rules.mjs && node --check netlify/functions/_shared/fulfill.mjs && node --check netlify/functions/create-checkout-session.mjs && node --check netlify/functions/stripe-webhook.mjs && node --check netlify/functions/redeem-give-code.mjs && node --check netlify/functions/admin-update-redemption.mjs && node --check netlify/functions/admin-reconcile-payment.mjs && node --check netlify/functions/admin-allocate-refund.mjs && node --check netlify/functions/admin-payment-migration-report.mjs && node --check netlify/functions/admin-finance-data.mjs && node --check netlify/functions/admin-save-ledger-entry.mjs && node --check netlify/functions/admin-finance-export.mjs && node --check netlify/functions/public-campaign.mjs && node --check public/assets/campaign-accountability.js"
@@ -15,5 +16,8 @@
     "openid-client": "6.8.5",
     "qrcode": "1.5.4",
     "stripe": "22.3.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1"
   }
 }
