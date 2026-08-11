@@ -35,6 +35,10 @@ function cleanItems(items) {
   }).filter(Boolean);
 }
 
+function itemSetSignature(items) {
+  return cleanItems(items).map((item) => [item.sourceType, item.sourceId, item.sourceItemId, item.itemIndex, item.productId, item.variantId, item.fit, item.size, item.color, item.sku, item.variantSku, item.campaignId, item.quantity].join('|')).sort().join('\n');
+}
+
 export default async (request) => {
   if (request.method !== 'POST') return methodNotAllowed(['POST']);
   const denied = requireAdmin(request);
@@ -45,42 +49,59 @@ export default async (request) => {
     const id = cleanText(input.id, 100) || createBatchId();
     const name = cleanText(input.name, 180) || id;
     const status = cleanText(input.status, 40) || 'draft';
-    const campaignId = cleanText(input.campaignId, 100);
-    const batchType = cleanText(input.batchType, 60) || 'manual';
+    const requestedCampaignId = cleanText(input.campaignId, 100);
+    const requestedBatchType = cleanText(input.batchType, 60) || 'manual';
     if (!BATCH_STATUSES.includes(status)) return json({ error: 'Invalid production batch status.' }, 400);
-    const campaign = campaignId ? await findCampaignById(campaignId) : null;
-    if (campaignId && !campaign) return json({ error: 'The selected campaign was not found.' }, 404);
-    if (batchType === 'campaign_church_pickup') {
-      if (!campaign || !['church_batch', 'hybrid'].includes(campaign.fulfillmentMethod)) return json({ error: 'Church-pickup batches require a campaign that supports church pickup.' }, 400);
-      if (!churchBatchReadiness(campaign).complete) return json({ error: 'Complete the campaign pickup configuration before creating a church-pickup batch.' }, 400);
-    }
 
     const store = getStore('izhe-production-batches');
     const entry = await store.getWithMetadata(id, { type: 'json', consistency: 'strong' });
     if (payload.expectedUpdatedAt && entry?.data?.updatedAt !== payload.expectedUpdatedAt) return json({ error: 'This production batch changed in another session. Reload before saving.' }, 409);
-    const items = cleanItems(input.items);
+
+    let batchType = requestedBatchType;
+    let campaignId = requestedCampaignId;
+    if (entry?.data?.batchType === 'campaign_church_pickup') {
+      if (requestedBatchType && requestedBatchType !== 'manual' && requestedBatchType !== 'campaign_church_pickup') return json({ error: 'The batch type cannot be changed after a church-pickup batch is created.' }, 400);
+      if (requestedCampaignId && requestedCampaignId !== entry.data.campaignId) return json({ error: 'The campaign cannot be changed on an existing church-pickup batch.' }, 400);
+      batchType = 'campaign_church_pickup';
+      campaignId = entry.data.campaignId || requestedCampaignId;
+    }
+    if (!entry && batchType === 'campaign_church_pickup') return json({ error: 'Create church-pickup batches with Build or Refresh Church Pickup Batch so eligibility and allocation rules are enforced.' }, 400);
+
+    const campaign = campaignId ? await findCampaignById(campaignId) : null;
+    if (campaignId && !campaign) return json({ error: 'The selected campaign was not found.' }, 404);
+    if (batchType === 'campaign_church_pickup') {
+      if (!campaign || !['church_batch', 'hybrid'].includes(campaign.fulfillmentMethod)) return json({ error: 'Church-pickup batches require a campaign that supports church pickup.' }, 400);
+      if (!churchBatchReadiness(campaign).complete) return json({ error: 'Complete the campaign pickup configuration before updating a church-pickup batch.' }, 400);
+    }
+
+    let items = cleanItems(input.items);
     if (campaignId && items.some((item) => item.campaignId !== campaignId)) return json({ error: 'A campaign production batch can contain only fulfillment units attributed to that campaign.' }, 400);
-    if (batchType === 'campaign_church_pickup' && items.some((item) => item.sourceType !== 'order')) return json({ error: 'Automatic church-pickup batches contain paid order items only. Give One redemptions remain separate.' }, 400);
+    if (batchType === 'campaign_church_pickup') {
+      const existingItems = cleanItems(entry?.data?.items || []);
+      if (Array.isArray(input.items) && itemSetSignature(input.items) !== itemSetSignature(existingItems)) return json({ error: 'Church-pickup batch items are managed only through Build or Refresh Church Pickup Batch. Submitted production obligations cannot be edited silently.' }, 409);
+      items = existingItems;
+      if (items.some((item) => item.sourceType !== 'order')) return json({ error: 'Church-pickup batches contain paid order items only. Give One redemptions remain separate.' }, 400);
+    }
 
     const now = new Date().toISOString();
-    const destination = batchType === 'campaign_church_pickup' ? pickupDestinationSnapshot(campaign) : input.destination || entry?.data?.destination || null;
+    const destination = batchType === 'campaign_church_pickup' ? (entry?.data?.destination || pickupDestinationSnapshot(campaign)) : input.destination || entry?.data?.destination || null;
     const batch = {
       id,
       name,
       batchType,
       vendor: cleanText(input.vendor, 180),
       campaignId,
-      campaignTitle: campaign?.title || '',
-      campaignOrganization: campaign?.organization || '',
+      campaignTitle: entry?.data?.campaignTitle || campaign?.title || '',
+      campaignOrganization: entry?.data?.campaignOrganization || campaign?.organization || '',
       destination,
       status,
-      dueDate: input.dueDate ? new Date(input.dueDate).toISOString() : '',
+      dueDate: input.dueDate ? new Date(input.dueDate).toISOString() : entry?.data?.dueDate || '',
       submittedAt: status === 'submitted' && !entry?.data?.submittedAt ? now : entry?.data?.submittedAt || '',
       receivedAt: ['received', 'completed'].includes(status) && !entry?.data?.receivedAt ? now : entry?.data?.receivedAt || '',
       receivedBy: cleanText(input.receivedBy || entry?.data?.receivedBy, 160),
       completedAt: status === 'completed' ? (entry?.data?.completedAt || now) : entry?.data?.completedAt || '',
-      tracking: cleanText(input.tracking, 180),
-      vendorToChurchTracking: cleanText(input.vendorToChurchTracking || input.tracking, 180),
+      tracking: cleanText(input.tracking || entry?.data?.tracking, 180),
+      vendorToChurchTracking: cleanText(input.vendorToChurchTracking || input.tracking || entry?.data?.vendorToChurchTracking, 180),
       notes: cleanText(input.notes, 3000),
       items,
       productionSummary: batchProductionSummary(items),
