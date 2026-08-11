@@ -2,247 +2,157 @@
 
 This document governs the bounded church-pickup fulfillment capability for IZHE campaigns. It extends the existing campaign, Stripe Checkout, order, Give One, production-batch, and administrator workflows without creating a second commerce platform.
 
+Financial/reversal authority is governed by [PAYMENT-ACCOUNTABILITY-INTEGRITY.md](./PAYMENT-ACCOUNTABILITY-INTEGRITY.md). This document governs the physical/pickup consequence of those verified payment states.
+
 ## Fulfillment definitions
 
 ### `individual_shipping`
 
-The existing direct-to-customer path. Stripe Checkout collects a U.S. shipping address, applies the configured standard shipping rate, keeps automatic tax enabled, and the order follows the shipping-oriented lifecycle. These orders are never automatically included in a campaign church-pickup batch.
+The direct-to-customer path. Stripe Checkout collects a U.S. shipping address, applies the configured standard shipping rate, keeps automatic tax enabled, and the order follows the shipping-oriented lifecycle. These orders are never automatically included in a campaign church-pickup batch.
 
 ### `church_batch`
 
-The entire checkout is consolidated with other paid campaign pickup orders and delivered to the participating church or ministry. The purchaser does not provide an individual shipping address and does not pay the normal per-order direct-shipping charge. Stripe Checkout requires billing information for tax calculation. The paid order stores an immutable pickup-location promise and a human-readable pickup confirmation code. After the church receives the production batch, the purchaser order becomes `ready_for_pickup` until an administrator records the handoff.
+The checkout is consolidated with other paid campaign pickup orders and delivered to the participating church/ministry. The purchaser does not provide an individual shipping address and does not pay the normal per-order direct-shipping charge. Stripe Checkout requires billing information for tax calculation. The paid order stores an immutable pickup-location promise and human-readable pickup confirmation code. After the church receives production, the purchaser order becomes `ready_for_pickup` until handoff is recorded.
 
 ### `hybrid`
 
-The campaign supports both modes. The purchaser must explicitly choose either church pickup or direct shipping before Checkout. One Checkout Session has one fulfillment mode; mixed pickup/shipping carts are intentionally unsupported. The server validates the requested mode against the campaign rather than trusting browser state.
+The campaign supports both modes. The purchaser explicitly chooses church pickup or direct shipping before Checkout. One Checkout Session has one fulfillment mode; mixed pickup/shipping carts are intentionally unsupported. The server validates the requested mode against the campaign.
 
 ## Campaign pickup configuration
 
-`church_batch` and `hybrid` campaigns use a structured `churchBatch` object with:
+`church_batch` and `hybrid` campaigns use structured `churchBatch` fields for pickup location/address, public/internal instructions, estimated ready time, pickup window, and administrator-only contact details.
 
-- Pickup location name
-- Address line 1 and optional address line 2
-- City
-- Two-letter U.S. state
-- Five-digit ZIP or ZIP+4
-- Country fixed to `US`
-- Public pickup instructions
-- Internal fulfillment instructions
-- Estimated ready date/time
-- Pickup-window start and end
-- Church pickup contact name
-- Contact email
-- Contact phone
-
-Pickup location name, address line 1, city, state, ZIP, and public instructions are required before a published scheduled/active pickup campaign can accept orders. Invalid states, ZIPs, emails, and pickup dates are rejected server-side. Existing `individual_shipping` campaigns require no pickup configuration. Legacy records missing `churchBatch` are normalized to a safe empty structure without destructive migration.
-
-The legacy/general `fulfillmentNotes` field remains available for internal information; it is not the public pickup contract.
+Pickup location name, address line 1, city, two-letter state, ZIP, and public instructions are required before a published scheduled/active pickup campaign can accept orders. Invalid states/ZIPs/emails/dates are rejected server-side. Existing individual-shipping campaigns remain compatible without pickup configuration.
 
 ## Public campaign experience
 
-The public campaign API exposes only the sanitized fulfillment projection:
+The public API exposes only sanitized fulfillment information: allowed mode, readiness, pickup location/address, public instructions, estimated-ready date, and pickup-window dates. Internal instructions/contact details remain private.
 
-- Campaign method and allowed modes
-- Public readiness
-- Pickup location name and address
-- Public pickup instructions
-- Estimated ready date
-- Pickup-window dates
-
-Internal fulfillment notes and church contact details are not part of the public projection.
-
-For church pickup, the campaign page tells the purchaser before cart/Checkout that the order will travel with the church's consolidated campaign order and that no individual shipping charge will be added. Hybrid campaigns require an explicit radio selection. That selection is stored in campaign-scoped local storage, displayed in the cart, changeable before Checkout, and submitted to the server for validation.
+Church-pickup purchasers are told before Checkout that the order travels with the consolidated campaign order and does not carry the normal individual-shipping charge. Hybrid campaigns require explicit mode selection and the server revalidates it.
 
 ## Stripe Checkout differences
 
-All checkout paths retain server-side catalog validation, Stripe lookup-key/amount verification, phone collection, customer creation, invoices, promotions, and Stripe automatic tax.
+All paths retain server-side catalog validation, Stripe lookup-key/amount verification, phone collection, customer creation, invoices, promotions, and automatic tax.
 
-For `individual_shipping`:
-
-- U.S. shipping address collection remains enabled.
-- The configured Stripe shipping rate is used, or the approved `IZHE_SHIPPING_CENTS` inline rate is used.
-- Billing address collection remains the existing `auto` behavior.
+For `individual_shipping`, U.S. shipping collection and the existing configured shipping rate/fallback remain.
 
 For `church_batch`:
 
-- `shipping_address_collection` is omitted.
-- Direct-shipping `shipping_options` are omitted.
-- The normal per-order shipping charge is not applied.
-- `billing_address_collection` is `required`.
-- `automatic_tax.enabled` remains `true`.
-- Checkout custom text describes church/campaign pickup and states that no individual shipment will be sent.
-- The full pickup snapshot stays in the server-side checkout draft rather than Stripe metadata.
+- `shipping_address_collection` is omitted;
+- direct-shipping `shipping_options` are omitted;
+- normal per-order shipping is not applied;
+- billing address collection is required;
+- automatic tax remains enabled;
+- Checkout copy describes church/campaign pickup;
+- the full pickup snapshot stays in the server-side Checkout draft rather than Stripe metadata.
 
 ### Tax review caveat
 
-The application does not invent pickup tax sourcing rules. Live tax treatment for church/campaign pickup transactions must be reviewed with a qualified tax professional before unrestricted public production use. Stripe automatic tax remains enabled, and billing address collection is required when no shipping address exists.
+The application does not invent pickup tax sourcing rules. Live tax treatment must be reviewed with a qualified tax professional before unrestricted production use.
 
-## Checkout draft and paid order snapshot
+## Checkout draft and immutable paid-order snapshot
 
-The checkout draft stores the server-resolved fulfillment mode and an immutable snapshot containing:
+The Checkout draft stores the server-resolved fulfillment mode, campaign attribution, product/variant snapshot, explicit support/Give One eligibility, active support-policy version, pickup/direct-shipping promise, and pickup code when applicable.
 
-- Mode
-- Campaign fulfillment method
-- Source (`campaign` or `general_storefront`)
-- Pickup-location snapshot, when applicable
-- Public instructions
-- Estimated ready date
-- Pickup-window dates
-- Fulfillment status
+Paid orders store canonical Stripe settlement facts in integer cents. These include merchandise gross, allocated discount, merchandise net before refund, shipping, tax, total charged, later verified refunds/disputes, and reconciliation state. Historical confirmation/accountability pages use the immutable order settlement rather than current catalog/campaign price fields.
 
-Church-pickup orders receive one secure code in the form `PICK-XXXX-XXXX-XXXX`. The code is generated once and preserved through webhook/order-status retries.
-
-Paid orders persist Stripe Checkout totals directly:
-
-- Merchandise subtotal
-- Shipping amount
-- Tax amount
-- Discount amount
-- Total paid
-- Currency
-
-For church pickup, the stored shipping amount is zero. Historical confirmation pages use the order snapshot and stored Stripe totals rather than the current campaign/catalog.
+For church pickup, the stored shipping collected amount is zero unless Stripe itself proves otherwise; it is never inferred from the general storefront shipping configuration.
 
 ## Paid-order lifecycle
 
-Church pickup uses a nested fulfillment state distinct from direct shipping:
+Church pickup retains its physical state machine:
 
-1. Paid order → `awaiting_batch`
-2. Batch `ready` or `submitted` → `allocated`
-3. Batch `in_production` → `in_production`
-4. Batch `received` or `completed` → `ready_for_pickup`
-5. Administrator confirms handoff → nested `picked_up`, root order `completed`
-6. Exception/no-show → explicit exception state
+1. paid order → `awaiting_batch`;
+2. batch ready/submitted → `allocated`;
+3. batch in production → `in_production`;
+4. batch received/completed → `ready_for_pickup`;
+5. handoff → nested `picked_up`, root operational completion;
+6. explicit exception/no-show/cancelled states as needed.
 
-`received` means received at the church/campaign pickup location. Production-batch `completed` does **not** prove that individual purchasers picked up their orders.
-
-Individual-shipping orders retain their existing `ready_to_ship`, shipped, delivered, and completed behavior.
+These states do not replace `order.payment.captureStatus`, `refundStatus`, `disputeStatus`, or `reconciliationStatus`. A production status is not proof that payment is unreversed, and a payment reversal does not erase production history.
 
 ## Build or Refresh Church Pickup Batch
 
-The administrator campaign action is server-authoritative. It:
+The administrator campaign action is server-authoritative and reads canonical payment/line settlement state.
 
-- Requires administrator authorization.
-- Loads the selected campaign and validates church-pickup support/readiness.
-- Reads authoritative paid orders and production batches.
-- Includes only paid, non-cancelled, non-refunded, non-refund-review campaign orders whose saved fulfillment mode is `church_batch`.
-- Excludes direct-shipping hybrid orders, general-storefront orders, Give One redemptions, disputed/refunded/cancelled orders, and source line items already allocated to another active batch.
-- Uses stable source IDs based on order reference and item index.
-- Preserves product, variant, fit, size, color, SKU, and quantity snapshots.
-- Aggregates production totals by SKU/product/variant/fit/size/color.
-- Stores the campaign and pickup/delivery destination snapshot on the batch.
+A source order qualifies only when it:
 
-If an editable `draft` or `ready` pickup batch exists, it is refreshed in place using ETag protection. Newly ineligible items are removed safely before submission. Once a batch is `submitted`, `in_production`, `received`, `completed`, or `cancelled`, the automatic action does not mutate it. New eligible orders create a numbered supplemental batch:
+- belongs to the selected campaign;
+- has saved fulfillment mode `church_batch`;
+- has captured paid status;
+- is not cancelled;
+- is not fully refunded;
+- has no open dispute or unresolved payment/reversal allocation that should block production.
 
-```text
-[Campaign Title] — Church Pickup Batch 1
-[Campaign Title] — Church Pickup Batch 2
-```
+The assembler excludes direct-shipping hybrid orders, general-storefront orders, Give One redemptions, and quantities already allocated to another active batch.
 
-Identity is structural (`batchType: "campaign_church_pickup"`), not name-based.
+For a proven whole-unit refund, only the objectively reversed units are removed from remaining editable batch quantity. A dollar-only/ambiguous partial refund is not translated into guessed units; the order remains out of production until reconciliation.
 
-## Production-batch destination and receipt
+Each source item retains the original PR #14 structural source-item identity plus the canonical immutable payment-line identity. Product/variant/fit/size/color/SKU snapshots remain historical.
 
-Church-pickup production batches store/derive:
+Editable `draft`/`ready` batches refresh with ETag protection. Once `submitted`, `in_production`, `received`, `completed`, or `cancelled`, automatic assembly does not rewrite that batch. Later eligible orders create supplemental batches.
 
-- Batch type
-- Campaign ID/title/organization
-- Church pickup/delivery destination snapshot
-- Vendor
-- Due date
-- Vendor-to-church tracking/reference
-- Submitted date
-- Received date
-- Received by
-- Internal notes
-- Production summary
-- Source order line items
+## Production destination and receipt
 
-The lifecycle remains `draft → ready → submitted → in_production → received → completed`, with `cancelled` as an explicit terminal path.
+Church-pickup batches retain batch/campaign/destination/vendor/due/tracking/submitted/received/internal-note/production-summary/source-line history. The lifecycle remains `draft → ready → submitted → in_production → received → completed`, with explicit cancellation.
 
-## Pickup handoff
+`received`/`completed` means the production shipment reached the church, not that each purchaser picked up an order.
 
-The existing operations search indexes the whole order record, so administrators can locate pickup orders by purchaser name, email, phone, pickup code, or Checkout/order reference. Campaign-specific filtering is available server-side, and the order drawer displays the saved pickup promise.
+## Pickup handoff and roster
 
-A protected handoff endpoint records:
+Operations search continues to find pickup orders by purchaser or pickup/order reference. The protected handoff endpoint records released-by, recipient name, note, timestamp, exception/no-show detail, and corrective history. Only `ready_for_pickup` may normally be marked picked up; duplicate handoff is rejected.
 
-- Released by
-- Recipient name (when different)
-- Note
-- Pickup timestamp
-- Exception/no-show details
-- Corrective reversal history
-
-Only `ready_for_pickup` orders can normally be marked picked up. Duplicate pickup confirmation is rejected. Reversing a pickup requires an explicit corrective note. Handoff changes do not mutate Stripe payment records or Give One codes.
-
-## Pickup roster and CSV
-
-The administrator-only campaign roster includes campaign, pickup code, order reference, purchaser contact fields, product/fit/size/color/quantity, amount paid, fulfillment status, batch ID/status, pickup location/window, pickup timestamp, released by, recipient name, and exception note. The endpoint supports filtered JSON and CSV output.
+The administrator-only roster retains campaign/pickup/order/purchaser/item/amount/fulfillment/batch/pickup-window/handoff fields and CSV output.
 
 ## Campaign operational metrics
 
-Campaign administration calculates from authoritative orders and batch assignments:
+Administrator metrics distinguish paid pickup orders/units, unbatched/batched/in-production units, ready/picked-up/exception orders, and hybrid direct-shipping orders. Give One obligations are deliberately not mixed into these paid-order church-pickup counts.
 
-- Paid church-pickup orders
-- Paid church-pickup units
-- Unbatched units
-- Batched units
-- Units in production
-- Orders ready for pickup
-- Orders picked up
-- Pickup exceptions
-- Direct-shipping orders for hybrid campaigns
+## Refund and dispute reconciliation
 
-Give One obligations are deliberately not counted in paid-order church-pickup metrics.
+### Before batch submission
 
-## Refund/cancellation reconciliation
+Draft/ready assembly uses canonical payment state. It excludes full reversals, open disputes, and ambiguous partial reversals; known whole-unit refunds reduce only the affected quantity.
 
-Before submission, a refresh of a draft/ready pickup batch excludes newly refunded, disputed, cancelled, or refund-review orders.
+### After submission / production commitment
 
-After submission/in-production/receipt/completion, source history is preserved. A refunded, cancelled, or refund-review order linked to an active/submitted pickup batch creates a critical operational reconciliation alert with order, campaign, batch, and quantity context. Administrators must reconcile the vendor/physical obligation manually; the system does not silently remove it.
+A refund/dispute does **not** silently remove source history or rewrite the production obligation. The payment-event processor creates a critical reconciliation task containing campaign, order, batch, committed quantity, source/payment-line identity, reversal amount, and status.
 
-## Give One scope boundary
+The administrator resolves physical/vendor cost consequences separately from the verified customer payment reversal. This preserves whether IZHE incurred an unrecoverable product cost.
 
-This phase does **not** change the Give One recipient promise. Give One recipients continue to enter their own U.S. fulfillment address and remain on the existing individual gift-fulfillment path. Automatically generated church-pickup batches contain paid order line items only. Administrators may continue creating separate manual production batches containing gift redemptions.
+## Give One boundary
 
-Campaign-based Give One pickup is a future product decision and is intentionally not partially implemented here.
+Give One remains a separate individual-address recipient path. Paid church-pickup batches contain paid order line items only. Deterministic Give One obligations may be suspended by source-payment review, but recipient redemptions are not automatically moved into church pickup.
 
 ## Bulk freight and campaign costs
 
-Church-pickup orders do not receive individual shipping, and the standard per-order shipping charge is not applied. Bulk freight or vendor delivery costs may be recorded as campaign costs through the existing accountability workflow; they are not automatically passed through to each pickup customer in this phase.
+Church-pickup orders do not receive individual shipping and the standard per-order shipping charge is not applied. Bulk freight/vendor delivery can be recorded as campaign cost through the append-only mission ledger; it is not automatically passed through to each pickup customer.
 
-## Backward compatibility
+## Backward compatibility and legacy treatment
 
-- Existing `individual_shipping` campaigns work without new fields.
-- Existing campaigns missing `churchBatch` load with an empty safe object.
-- Existing orders without a fulfillment snapshot are interpreted as legacy individual-shipping orders.
-- Existing Give One issuance, validation, redemption, and manual gift batching remain separate.
-- Campaign IDs, slugs, dates, product restrictions, support calculations, mission-support ledger behavior, and catalog snapshots remain intact.
+- Existing individual-shipping campaigns work without pickup fields.
+- Existing campaigns missing `churchBatch` normalize safely.
+- Existing orders without fulfillment snapshots are interpreted by legacy normalization, but their financial precision is not manufactured from current catalog values.
+- Existing Give One public codes are preserved/wrapped into deterministic obligations when reconciliation can prove the source entitlement.
+- Existing submitted production batches remain historical after later payment reversals.
+- Old permanent fulfillment-lock records may be reported by the dry-run migration audit; they are not the current resumable-workflow authority and are not deleted by that report.
 
-## Manual production setup and Stripe test-mode checklist
+## Stripe test-mode acceptance
 
-Before a deploy-preview/manual acceptance run:
+Church batch remains subject to the wider payment-integrity acceptance in [PAYMENT-ACCOUNTABILITY-INTEGRITY.md](./PAYMENT-ACCOUNTABILITY-INTEGRITY.md). At minimum, isolated test-mode acceptance must prove:
 
-1. Use Stripe **test mode** keys and webhook signing secret only.
-2. Confirm `IZHE_SHIPPING_CENTS` and/or the test shipping rate match the intended direct-shipping test setup.
-3. Confirm Netlify Blobs/function storage is isolated from production data.
-4. Create one `church_batch` campaign and one `hybrid` campaign with a complete pickup configuration.
-5. Run the acceptance scenarios below; do not change live Stripe settings.
-6. Obtain tax-professional review before unrestricted live pickup transactions.
+- church pickup Checkout has no individual shipping collection/charge while tax remains separately recorded;
+- paid fulfillment produces exactly one order, stable pickup code, canonical payment/line settlement, indexes, and Give One obligations;
+- webhook replay is idempotent;
+- proven pre-batch whole-unit refund adjusts batch eligibility only for the affected unit;
+- ambiguous partial refund blocks production and holds/suspends rather than guesses/cancels;
+- full pre-batch refund prevents batch inclusion;
+- post-submission reversal preserves production and creates a critical task;
+- hybrid direct-shipping never enters a church batch;
+- Give One redemption never enters a paid-order church batch.
 
-### Acceptance scenarios
-
-- **A — Church batch:** visible pickup promise → no shipping address/rate in Checkout → paid order snapshot/pickup code → unbatched → batch build → submitted → production → received → ready for pickup → code search → handoff → roster.
-- **B — Hybrid pickup:** checkout blocked until explicit choice → pickup path behaves exactly like church batch.
-- **C — Hybrid direct shipping:** explicit shipping choice → Stripe shipping address/rate → excluded from church pickup batch → normal shipping lifecycle.
-- **D — General storefront:** direct-shipping behavior unchanged.
-- **E — Refund before batching:** refunded/disputed/refund-review order excluded from a refreshed/new pickup batch.
-- **F — Refund after submission:** production history retained and critical reconciliation alert created.
-
-### Current verification record
-
-Automated pure-logic and syntax checks are part of `npm test`/CI. A real Stripe test-mode Checkout walkthrough requires a configured local or deploy-preview Netlify/Stripe test environment; it must be recorded in the pull request before this capability is described as production-complete.
+Real Stripe test-mode acceptance requires isolated test credentials/environment and must be recorded before production completeness is claimed.
 
 ## Explicit non-goals
 
-This pass does not implement multiple pickup locations, mixed fulfillment in one Checkout Session, customer accounts, new administrator authentication, a new email provider, carrier labels, international fulfillment, inventory purchasing, vendor PO integration, Give One church pickup, full partial-refund allocation redesign, or a general site redesign.
+This pass does not implement multiple pickup locations, mixed fulfillment within one Checkout Session, customer accounts, named administrator accounts/RBAC/MFA, a new email provider, carrier labels, international fulfillment, inventory procurement, vendor PO automation, Give One church pickup, customer self-service refund allocation, or a storefront redesign.
