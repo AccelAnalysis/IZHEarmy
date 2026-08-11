@@ -207,7 +207,13 @@ export function applyRefundFacts(payment, { totalRefunded = 0, merchandiseRefund
   next.amounts.taxRefunded = tax;
   next.amounts.refundUnallocated = unallocated;
   next.amounts.totalRefunded = total;
-  next.refundStatus = total === 0 ? 'none' : charged > 0 && total >= charged ? 'full' : 'partial';
+  next.refundStatus = total === 0
+    ? 'none'
+    : charged > 0 && total >= charged
+      ? 'full'
+      : allocationRequired || unallocated > 0
+        ? 'allocation_required'
+        : 'partial';
   if (allocationRequired || unallocated > 0) next.reconciliationStatus = 'allocation_required';
   else if (next.reconciliationStatus === 'allocation_required') next.reconciliationStatus = 'reconciled';
   else next.reconciliationStatus = next.reconciliationStatus || 'reconciled';
