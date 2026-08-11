@@ -20,13 +20,20 @@ export function stableOrderSourceItems(order) {
   }));
 }
 
-export function allocatedSourceItemIds(batches = [], { excludeBatchId = '' } = {}) {
-  const allocated = new Set();
+export function allocatedSourceItemQuantities(batches = [], { excludeBatchId = '' } = {}) {
+  const allocated = new Map();
   for (const batch of batches) {
     if (!ACTIVE_BATCH_STATUSES.has(batch.status) || batch.id === excludeBatchId) continue;
-    for (const item of batch.items || []) if (item.sourceItemId) allocated.add(item.sourceItemId);
+    for (const item of batch.items || []) {
+      if (!item.sourceItemId) continue;
+      allocated.set(item.sourceItemId, (allocated.get(item.sourceItemId) || 0) + Math.max(0, Number(item.quantity || 0)));
+    }
   }
   return allocated;
+}
+
+export function allocatedSourceItemIds(batches = [], options = {}) {
+  return new Set([...allocatedSourceItemQuantities(batches, options)].filter(([, quantity]) => quantity > 0).map(([sourceItemId]) => sourceItemId));
 }
 
 export function selectEditableChurchBatch(batches = [], campaignId = '') {
@@ -37,8 +44,8 @@ export function nextChurchBatchNumber(batches = [], campaignId = '') { return ba
 
 export function assembleChurchPickupItems({ campaign, orders = [], batches = [], targetBatch = null }) {
   const targetId = targetBatch?.id || '';
-  const allocatedElsewhere = allocatedSourceItemIds(batches, { excludeBatchId: targetId });
-  const items = []; const includedOrders = new Set(); const excluded = []; const seen = new Set();
+  const allocatedElsewhere = allocatedSourceItemQuantities(batches, { excludeBatchId: targetId });
+  const items = []; const includedOrders = new Set(); const excluded = []; const adjustments = []; const seen = new Set();
   for (const order of orders) {
     if (order.campaignId !== campaign.id) continue;
     const reasons = [];
@@ -50,11 +57,26 @@ export function assembleChurchPickupItems({ campaign, orders = [], batches = [],
     if (reasons.length) { excluded.push({ sessionId: order.sessionId || order.id || '', reasons: [...new Set(reasons)] }); continue; }
     for (const item of stableOrderSourceItems(order)) {
       if (!item.sourceId || seen.has(item.sourceItemId)) continue;
-      if (allocatedElsewhere.has(item.sourceItemId)) { excluded.push({ sessionId: item.sourceId, sourceItemId: item.sourceItemId, reasons: ['already_allocated'] }); continue; }
-      seen.add(item.sourceItemId); items.push(item); includedOrders.add(item.sourceId);
+      const allocatedQuantity = Math.max(0, Number(allocatedElsewhere.get(item.sourceItemId) || 0));
+      const remainingQuantity = Math.max(0, Number(item.quantity || 0) - allocatedQuantity);
+      if (!remainingQuantity) {
+        excluded.push({ sessionId: item.sourceId, sourceItemId: item.sourceItemId, reasons: ['already_allocated'], allocatedQuantity });
+        continue;
+      }
+      if (allocatedQuantity) adjustments.push({ sessionId: item.sourceId, sourceItemId: item.sourceItemId, allocatedQuantity, remainingQuantity });
+      seen.add(item.sourceItemId);
+      items.push({ ...item, quantity: remainingQuantity });
+      includedOrders.add(item.sourceId);
     }
   }
-  return { items, productionSummary: batchProductionSummary(items), ordersIncluded: includedOrders.size, unitsIncluded: items.reduce((sum, item) => sum + Number(item.quantity || 0), 0), excluded };
+  return {
+    items,
+    productionSummary: batchProductionSummary(items),
+    ordersIncluded: includedOrders.size,
+    unitsIncluded: items.reduce((sum, item) => sum + Number(item.quantity || 0), 0),
+    excluded,
+    adjustments
+  };
 }
 
 export function pickupDestinationSnapshot(campaign) {
