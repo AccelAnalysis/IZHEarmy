@@ -1,12 +1,21 @@
 import { getStore } from '@netlify/blobs';
-import { randomToken, redact } from './admin-crypto.mjs';
+import { randomToken, redact, sha256 } from './admin-crypto.mjs';
+import { activeOwners } from './admin-user-service.mjs';
 
 const STORE_NAME = 'izhe-admin-financial-actions';
 const store = () => getStore(STORE_NAME);
 const ALLOWED_TYPES = new Set(['payment_reconciliation', 'refund_allocation', 'reporting_period_change']);
 const now = () => new Date().toISOString();
 
-function publicRecord(record, { includePayload = false } = {}) {
+function safePayload(value) {
+  try {
+    return structuredClone(value || {});
+  } catch {
+    throw Object.assign(new Error('The financial action payload is invalid.'), { statusCode: 400 });
+  }
+}
+
+function publicRecord(record) {
   if (!record) return null;
   return {
     id: record.id,
@@ -30,8 +39,7 @@ function publicRecord(record, { includePayload = false } = {}) {
     appliedAt: record.appliedAt,
     resultSummary: record.resultSummary,
     failureSummary: record.failureSummary,
-    updatedAt: record.updatedAt,
-    ...(includePayload ? { actionPayload: record.actionPayload } : {})
+    updatedAt: record.updatedAt
   };
 }
 
@@ -51,7 +59,7 @@ export async function createFinancialActionRequest({
     type,
     status: 'pending',
     resourceId: String(resourceId || '').slice(0, 240),
-    actionPayload: redact(actionPayload, { maxDepth: 8 }),
+    actionPayload: safePayload(actionPayload),
     expectedUpdatedAt: String(expectedUpdatedAt || '').slice(0, 100),
     previewSummary: redact(previewSummary, { maxDepth: 8 }),
     requestedAt,
@@ -67,6 +75,7 @@ export async function createFinancialActionRequest({
     reviewReason: '',
     sameActorOverride: false,
     reviewTokenHash: null,
+    claimExpiresAt: null,
     appliedAt: null,
     resultSummary: null,
     failureSummary: null,
@@ -77,9 +86,9 @@ export async function createFinancialActionRequest({
   return publicRecord(record);
 }
 
-export async function getFinancialActionRequest(id, { includePayload = false } = {}) {
+export async function getFinancialActionRequest(id) {
   const value = await store().get(String(id || ''), { type: 'json', consistency: 'strong' }).catch(() => null);
-  return publicRecord(value, { includePayload });
+  return publicRecord(value);
 }
 
 export async function listFinancialActionRequests({ status = '', type = '', limit = 100 } = {}) {
@@ -105,8 +114,12 @@ export async function beginFinancialActionReview(id, context, {
   const record = entry.data;
   if (record.status !== 'pending') throw Object.assign(new Error('Only a pending financial action request can be applied.'), { statusCode: 409 });
   const sameActor = record.requestedBy === context.userId;
-  if (sameActor && (!context.roles.includes('owner') || confirmSameActor !== true)) {
-    throw Object.assign(new Error('The requester cannot approve this financial action unless acting as the sole Owner with explicit confirmation.'), { statusCode: 403 });
+  if (sameActor) {
+    const owners = await activeOwners();
+    const soleOwnerOverride = context.roles.includes('owner') && owners.length === 1 && owners[0].id === context.userId && confirmSameActor === true;
+    if (!soleOwnerOverride) {
+      throw Object.assign(new Error('The requester cannot approve this financial action unless they are the sole active Owner and explicitly confirm the override.'), { statusCode: 403 });
+    }
   }
   const reviewToken = randomToken(24);
   const applying = {
@@ -118,19 +131,20 @@ export async function beginFinancialActionReview(id, context, {
     reviewedByDisplayName: context.displayName,
     reviewReason: String(reason || '').slice(0, 1_000),
     sameActorOverride: sameActor,
-    reviewTokenHash: redact({ token: reviewToken }).token,
+    reviewTokenHash: sha256(reviewToken),
+    claimExpiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
     updatedAt: now()
   };
-  // Keep a one-way hash without exposing the claim token through publicRecord.
-  const { sha256 } = await import('./admin-crypto.mjs');
-  applying.reviewTokenHash = sha256(reviewToken);
   const saved = await store().setJSON(record.id, applying, { onlyIfMatch: entry.etag });
   if (!saved.modified) throw Object.assign(new Error('The financial action request changed in another session.'), { statusCode: 409 });
-  return { request: publicRecord(applying, { includePayload: true }), reviewToken };
+  return {
+    record: structuredClone(applying),
+    request: publicRecord(applying),
+    reviewToken
+  };
 }
 
 async function finish(id, reviewToken, changes) {
-  const { sha256 } = await import('./admin-crypto.mjs');
   const entry = await store().getWithMetadata(String(id || ''), { type: 'json', consistency: 'strong' }).catch(() => null);
   if (!entry?.data) throw Object.assign(new Error('Financial action request not found.'), { statusCode: 404 });
   if (entry.data.status !== 'applying' || entry.data.reviewTokenHash !== sha256(reviewToken)) {
@@ -140,6 +154,7 @@ async function finish(id, reviewToken, changes) {
     ...entry.data,
     ...changes,
     reviewTokenHash: null,
+    claimExpiresAt: null,
     updatedAt: now()
   };
   const saved = await store().setJSON(updated.id, updated, { onlyIfMatch: entry.etag });
