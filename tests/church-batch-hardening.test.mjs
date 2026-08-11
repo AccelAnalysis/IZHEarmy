@@ -17,6 +17,14 @@ function pickupOrder(quantity = 3) {
   return { sessionId: 'cs_split', campaignId: 'CAM-1', paymentStatus: 'paid', status: 'paid', fulfillment: { mode: 'church_batch' }, items: [{ productId: 'shirt', productName: 'Shirt', variantId: 'v1', variantSku: 'SKU-M', fit: 'Unisex', size: 'M', color: 'Black', quantity }] };
 }
 
+function canonicalPayment(overrides = {}) {
+  return {
+    captureStatus: 'paid', refundStatus: 'none', disputeStatus: 'none', reconciliationStatus: 'reconciled', currency: 'usd',
+    amounts: { totalCharged: 7500, totalRefunded: 0, refundUnallocated: 0, openDisputeAmount: 0, lostDisputeAmount: 0, netCollected: 7500, amountHeld: 0, availableAfterHolds: 7500 },
+    ...overrides
+  };
+}
+
 test('partial allocation batches only the remaining order-line quantity', () => {
   const order = pickupOrder(3);
   const [source] = stableOrderSourceItems(order);
@@ -25,7 +33,10 @@ test('partial allocation batches only the remaining order-line quantity', () => 
   assert.equal(selection.items.length, 1);
   assert.equal(selection.items[0].quantity, 2);
   assert.equal(selection.unitsIncluded, 2);
-  assert.deepEqual(selection.adjustments[0], { sessionId: 'cs_split', sourceItemId: 'order:cs_split:0', allocatedQuantity: 1, remainingQuantity: 2 });
+  assert.deepEqual(selection.adjustments[0], {
+    sessionId: 'cs_split', sourceItemId: 'order:cs_split:0', paymentLineId: 'order:cs_split:0', allocatedQuantity: 1,
+    refundedWholeUnitCount: 0, remainingQuantity: 2
+  });
 });
 
 test('full allocation across multiple batches prevents duplicate production', () => {
@@ -45,6 +56,32 @@ test('explicit unpaid payment status is never accepted from an advanced operatio
   const selection = assembleChurchPickupItems({ campaign, orders: [order], batches: [] });
   assert.equal(selection.items.length, 0);
   assert.ok(selection.excluded.some((item) => item.reasons.includes('not_paid')));
+});
+
+test('proven whole-unit refund reduces editable church batch quantity without rewriting the order', () => {
+  const order = {
+    ...pickupOrder(3),
+    payment: canonicalPayment({ refundStatus: 'partial' }),
+    lineSettlements: [{
+      lineId: 'order:cs_split:line:0', quantityPurchased: 3, allocatedWholeUnitReversals: [1],
+      netMerchandiseBeforeRefunds: 7500, allocatedMerchandiseRefund: 2500, netRecognizedMerchandiseRevenue: 5000
+    }]
+  };
+  const selection = assembleChurchPickupItems({ campaign, orders: [order], batches: [] });
+  assert.equal(selection.unitsIncluded, 2);
+  assert.equal(selection.items[0].quantity, 2);
+  assert.equal(selection.items[0].paymentLineId, 'order:cs_split:line:0');
+  assert.equal(selection.items[0].refundedWholeUnitCount, 1);
+  assert.equal(order.items[0].quantity, 3);
+});
+
+test('ambiguous refund and open dispute are excluded from new production until reconciled', () => {
+  const refundReview = { ...pickupOrder(1), sessionId: 'cs_refund_review', payment: canonicalPayment({ refundStatus: 'allocation_required', reconciliationStatus: 'allocation_required' }) };
+  const dispute = { ...pickupOrder(1), sessionId: 'cs_dispute', payment: canonicalPayment({ disputeStatus: 'open', amounts: { ...canonicalPayment().amounts, openDisputeAmount: 2500, amountHeld: 2500 } }) };
+  const selection = assembleChurchPickupItems({ campaign, orders: [refundReview, dispute], batches: [] });
+  assert.equal(selection.items.length, 0);
+  assert.ok(selection.excluded.some((item) => item.sessionId === 'cs_refund_review' && item.reasons.includes('refund_or_reversal_allocation_required')));
+  assert.ok(selection.excluded.some((item) => item.sessionId === 'cs_dispute' && item.reasons.includes('dispute_open')));
 });
 
 test('church pickup reaches ready only after every required quantity is received', () => {
@@ -111,7 +148,7 @@ test('generic order editor cannot bypass church pickup lifecycle authority', () 
 test('public campaign API keeps new pickup operations metrics private', () => {
   const source = fs.readFileSync(new URL('../netlify/functions/public-campaign.mjs', import.meta.url), 'utf8');
   assert.match(source, /function publicCampaignMetrics/);
-  assert.match(source, /metrics: publicCampaignMetrics\(metrics\)/);
+  assert.match(source, /metrics: publicCampaignMetrics\(metrics, underReconciliation\)/);
   assert.doesNotMatch(source, /churchPickupOrderCount/);
   assert.doesNotMatch(source, /unbatchedChurchPickupUnits/);
   assert.doesNotMatch(source, /pickupExceptionCount/);
