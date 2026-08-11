@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { assembleChurchPickupItems, stableOrderSourceItems } from '../netlify/functions/_shared/church-batch-rules.mjs';
+import { validateCampaign } from '../netlify/functions/_shared/campaign-rules.mjs';
 import { churchBatchReadiness } from '../netlify/functions/_shared/fulfillment-rules.mjs';
 import { computeOperationalAlerts, resolveOrderBatchLifecycle } from '../netlify/functions/_shared/operations-rules.mjs';
 
@@ -72,6 +73,15 @@ test('pickup window cannot begin while campaign ordering is still open', () => {
   assert.match(readiness.errors.join(' '), /Pickup-window start cannot occur before the campaign ordering period ends/);
 });
 
+test('individual shipping can be saved despite irrelevant hidden pickup-field errors', () => {
+  const catalog = { collections: [{ id: 'collection-1' }], products: [] };
+  const input = { id: 'CAM-SHIP', title: 'Shipping Campaign', slug: 'shipping-campaign', organization: 'Church', collectionIds: ['collection-1'], productIds: [], status: 'active', publishStatus: 'published', fulfillmentMethod: 'individual_shipping', startAt: '2026-08-01T00:00:00.000Z', endAt: '2026-08-31T23:59:59.000Z', churchBatch: { ...pickup, state: 'XX', postalCode: 'BAD' } };
+  const validated = validateCampaign(input, catalog);
+  assert.equal(validated.fulfillmentMethod, 'individual_shipping');
+  assert.equal(validated.churchBatch.state, 'XX');
+  assert.equal(validated.churchBatch.postalCode, 'BAD');
+});
+
 test('checkout draft owns the pickup code used by paid fulfillment', () => {
   const checkout = fs.readFileSync(new URL('../netlify/functions/create-checkout-session.mjs', import.meta.url), 'utf8');
   const fulfill = fs.readFileSync(new URL('../netlify/functions/_shared/fulfill.mjs', import.meta.url), 'utf8');
@@ -88,6 +98,7 @@ test('batch assembly and generic editing enforce concurrency and immutable produ
   assert.match(builder, /onlyIfNew: true/);
   assert.match(saver, /managed only through Build or Refresh Church Pickup Batch/);
   assert.match(saver, /entry\.data\.destination \|\| pickupDestinationSnapshot/);
+  assert.doesNotMatch(saver, /churchBatchReadiness/);
   assert.match(sync, /assignment\.sourceItemId === item\.sourceItemId && assignment\.batchId === batch\.id/);
 });
 
@@ -95,4 +106,13 @@ test('generic order editor cannot bypass church pickup lifecycle authority', () 
   const updater = fs.readFileSync(new URL('../netlify/functions/admin-update-order.mjs', import.meta.url), 'utf8');
   assert.match(updater, /controlled by production batches and the pickup handoff workflow/);
   assert.match(updater, /\['cancelled', 'exception'\]/);
+});
+
+test('public campaign API keeps new pickup operations metrics private', () => {
+  const source = fs.readFileSync(new URL('../netlify/functions/public-campaign.mjs', import.meta.url), 'utf8');
+  assert.match(source, /function publicCampaignMetrics/);
+  assert.match(source, /metrics: publicCampaignMetrics\(metrics\)/);
+  assert.doesNotMatch(source, /churchPickupOrderCount/);
+  assert.doesNotMatch(source, /unbatchedChurchPickupUnits/);
+  assert.doesNotMatch(source, /pickupExceptionCount/);
 });
