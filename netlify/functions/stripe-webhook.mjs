@@ -4,13 +4,9 @@ import { lockCampaignSupportPolicy } from './_shared/campaign-service.mjs';
 import { fulfillPaidSession } from './_shared/fulfill.mjs';
 import { processDisputeEvent, processRefundEvent } from './_shared/payment-event-service.mjs';
 import { markPaymentEventOnOrder } from './_shared/payment-service.mjs';
-import {
-  beginStripeEventReceipt,
-  completeStripeEvent,
-  failStripeEvent,
-  linkStripeEventOrder,
-  updateStripeEventStage
-} from './_shared/stripe-event-service.mjs';
+import * as stripeEventService from './_shared/stripe-event-service.mjs';
+
+const { completeStripeEvent, failStripeEvent, linkStripeEventOrder, updateStripeEventStage } = stripeEventService;
 
 const REFUND_EVENTS = new Set([
   'charge.refunded',
@@ -54,7 +50,7 @@ export default async (request) => {
   }
 
   try {
-    const begun = await beginStripeEventReceipt(event, rawBody);
+    const begun = await stripeEventService.beginStripeEventReceipt(event, rawBody);
     if (begun.alreadyProcessed) return new Response('ok');
   } catch (error) {
     console.error('stripe-webhook receipt persistence failed', String(error?.message || error).slice(0, 300));
