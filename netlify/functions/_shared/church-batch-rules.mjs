@@ -1,13 +1,19 @@
 import { batchProductionSummary } from './operations-rules.mjs';
 
 const INELIGIBLE_ORDER_STATUSES = new Set(['cancelled', 'refunded_or_disputed', 'refund_requires_review']);
+const PAID_PROGRESS_STATUSES = new Set(['paid', 'allocated', 'in_production', 'ready_for_pickup', 'completed']);
 const ACTIVE_BATCH_STATUSES = new Set(['draft', 'ready', 'submitted', 'in_production', 'received', 'completed']);
+
+function hasConfirmedPayment(order) {
+  if (order?.paymentStatus) return order.paymentStatus === 'paid';
+  return PAID_PROGRESS_STATUSES.has(order?.status);
+}
 
 export function isPaidChurchPickupOrder(order, campaignId = '') {
   if (!order) return false;
   if (campaignId && order.campaignId !== campaignId) return false;
   if (order.fulfillment?.mode !== 'church_batch') return false;
-  if (order.paymentStatus !== 'paid' && order.status !== 'paid' && !['allocated', 'in_production', 'ready_for_pickup', 'completed'].includes(order.status)) return false;
+  if (!hasConfirmedPayment(order)) return false;
   if (INELIGIBLE_ORDER_STATUSES.has(order.status)) return false;
   return true;
 }
@@ -50,7 +56,7 @@ export function assembleChurchPickupItems({ campaign, orders = [], batches = [],
     if (order.campaignId !== campaign.id) continue;
     const reasons = [];
     if (order.fulfillment?.mode !== 'church_batch') reasons.push('not_church_pickup');
-    if (order.paymentStatus !== 'paid' && !['paid', 'allocated', 'in_production', 'ready_for_pickup', 'completed'].includes(order.status)) reasons.push('not_paid');
+    if (!hasConfirmedPayment(order)) reasons.push('not_paid');
     if (order.status === 'cancelled') reasons.push('cancelled');
     if (order.status === 'refunded_or_disputed') reasons.push('refunded_or_disputed');
     if (order.status === 'refund_requires_review') reasons.push('refund_requires_review');
