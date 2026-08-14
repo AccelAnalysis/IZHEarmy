@@ -1,4 +1,22 @@
 'use strict';
+const IZHE_installHeaderSubtext=()=>{
+  const brand=document.querySelector('#navbar a[aria-label="IZHE home"]');
+  if(!brand||brand.querySelector('.izhe-logo-subtext'))return;
+  const style=document.createElement('style');
+  style.textContent='#navbar a[aria-label="IZHE home"]{position:relative}#navbar .izhe-logo-subtext{position:absolute;left:50%;top:calc(100% - .1rem);width:8.25rem;max-width:none;height:auto;transform:translateX(-50%);filter:brightness(0) invert(1);pointer-events:none;user-select:none;z-index:1}@media(min-width:640px){#navbar .izhe-logo-subtext{width:9.5rem;top:calc(100% - .15rem)}}';
+  document.head.append(style);
+  const subtext=document.createElement('img');
+  subtext.src='/assets/izhe-logo-subtext.png';
+  subtext.alt='';
+  subtext.setAttribute('aria-hidden','true');
+  subtext.className='izhe-logo-subtext';
+  subtext.width=521;
+  subtext.height=84;
+  subtext.decoding='async';
+  subtext.draggable=false;
+  brand.append(subtext);
+};
+IZHE_installHeaderSubtext();
 const IZHE_releasePendingContentMedia=()=>{document.querySelectorAll('.izhe-media-pending').forEach((element)=>element.classList.remove('izhe-media-pending'));};
 function IZHE_revealForegroundWhenReady(image,fallbackSrc=''){
   if(!image)return;
