@@ -1,22 +1,33 @@
 'use strict';
-const IZHE_installHeaderSubtext=()=>{
-  const brand=document.querySelector('#navbar a[aria-label="IZHE home"]');
-  if(!brand||brand.querySelector('.izhe-logo-subtext'))return;
-  const style=document.createElement('style');
-  style.textContent='#navbar a[aria-label="IZHE home"]{position:relative}#navbar .izhe-logo-subtext{position:absolute;left:50%;top:calc(100% - .1rem);width:8.25rem;max-width:none;height:auto;transform:translateX(-50%);filter:brightness(0) invert(1);pointer-events:none;user-select:none;z-index:1}@media(min-width:640px){#navbar .izhe-logo-subtext{width:9.5rem;top:calc(100% - .15rem)}}';
-  document.head.append(style);
-  const subtext=document.createElement('img');
-  subtext.src='/assets/izhe-logo-subtext.png';
-  subtext.alt='';
-  subtext.setAttribute('aria-hidden','true');
-  subtext.className='izhe-logo-subtext';
-  subtext.width=521;
-  subtext.height=84;
-  subtext.decoding='async';
-  subtext.draggable=false;
-  brand.append(subtext);
+const IZHE_installLogoSubtexts=()=>{
+  const targets=[
+    {element:document.querySelector('#navbar a[aria-label="IZHE home"]'),variant:'nav'},
+    {element:document.querySelector('#top h1.izhe-logo'),variant:'hero'},
+    {element:document.querySelector('footer a[href="#top"].izhe-logo'),variant:'footer'}
+  ];
+  if(!targets.some(({element})=>element))return;
+  if(!document.getElementById('izhe-logo-subtext-styles')){
+    const style=document.createElement('style');
+    style.id='izhe-logo-subtext-styles';
+    style.textContent='.izhe-logo-with-subtext{position:relative}.izhe-logo-subtext{position:absolute;left:50%;max-width:none;height:auto;transform:translateX(-50%);filter:brightness(0) invert(1);pointer-events:none;user-select:none;z-index:1}.izhe-logo-subtext--nav{top:calc(100% - .1rem);width:8.25rem}.izhe-logo-subtext--hero{top:calc(100% + .2rem);width:112%}.izhe-logo-subtext--footer{top:calc(100% + .1rem);width:9.5rem}#top h1.izhe-logo.izhe-logo-with-subtext{display:inline-block;margin-bottom:clamp(4rem,7vw,6.5rem)}footer a.izhe-logo.izhe-logo-with-subtext{display:inline-block;margin-bottom:2.75rem}@media(min-width:640px){.izhe-logo-subtext--nav{width:9.5rem;top:calc(100% - .15rem)}.izhe-logo-subtext--footer{width:10.5rem}}';
+    document.head.append(style);
+  }
+  targets.forEach(({element,variant})=>{
+    if(!element||element.querySelector(`.izhe-logo-subtext--${variant}`))return;
+    element.classList.add('izhe-logo-with-subtext');
+    const subtext=document.createElement('img');
+    subtext.src='/assets/izhe-logo-subtext.png';
+    subtext.alt='';
+    subtext.setAttribute('aria-hidden','true');
+    subtext.className=`izhe-logo-subtext izhe-logo-subtext--${variant}`;
+    subtext.width=521;
+    subtext.height=84;
+    subtext.decoding='async';
+    subtext.draggable=false;
+    element.append(subtext);
+  });
 };
-IZHE_installHeaderSubtext();
+IZHE_installLogoSubtexts();
 const IZHE_releasePendingContentMedia=()=>{document.querySelectorAll('.izhe-media-pending').forEach((element)=>element.classList.remove('izhe-media-pending'));};
 function IZHE_revealForegroundWhenReady(image,fallbackSrc=''){
   if(!image)return;
