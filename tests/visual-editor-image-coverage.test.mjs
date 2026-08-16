@@ -42,24 +42,31 @@ test('foreground image presentation settings are validated for Story and Give On
   }), /valid story image focal point/i);
 });
 
-test('visual editor exposes explicit controls for every non-product foreground image', async () => {
-  const frame = await readFile(new URL('public/assets/visual-editor-frame.js', root), 'utf8');
-  const editor = await readFile(new URL('public/assets/visual-editor-part-2.js', root), 'utf8');
+test('Admin v2 visual editor preserves explicit foreground controls, Media Library selection, and secure live preview', async () => {
+  const editor = await readFile(new URL('public/assets/admin-v2/pages/visual-editor.js', root), 'utf8');
+  const schemas = await readFile(new URL('netlify/functions/_shared/content-rules.mjs', root), 'utf8');
+  const previewLoader = await readFile(new URL('public/assets/site-content-load.js', root), 'utf8');
   const storyRenderer = await readFile(new URL('public/assets/site-content-home-1.js', root), 'utf8');
   const giveRenderer = await readFile(new URL('public/assets/site-content-home-2.js', root), 'utf8');
 
-  assert.match(frame, /Story image/);
-  assert.match(frame, /Give One purpose image/);
-  assert.match(frame, /CHANGE IMAGE/);
-  assert.match(frame, /veAltField/);
-  assert.match(frame, /veFocalField/);
-  assert.match(frame, /veFitField/);
-  assert.match(frame, /veOverlayField/);
-  assert.match(editor, /ACCESSIBLE IMAGE DESCRIPTION/);
-  assert.match(editor, /IMAGE FOCAL POINT/);
-  assert.match(editor, /IMAGE FIT/);
-  assert.match(editor, /TEXT OVERLAY/);
-  assert.match(editor, /data-media-alt/);
+  assert.match(schemas, /Story image description/);
+  assert.match(schemas, /Story image focal point/);
+  assert.match(schemas, /Story image fit/);
+  assert.match(schemas, /Story image overlay/);
+  assert.match(schemas, /Purpose image description/);
+  assert.match(schemas, /Purpose image focal point/);
+  assert.match(schemas, /Purpose image fit/);
+  assert.match(schemas, /Purpose image overlay/);
+  assert.match(editor, /mediaPickerButton/);
+  assert.match(editor, /data-field-key/);
+  assert.match(editor, /baseRevision: state\.libraryRevision, changes/);
+  assert.match(editor, /izhe-admin-preview-apply/);
+  assert.match(editor, /window\.location\.origin/);
+  assert.match(editor, /visualFrame=1/);
+  assert.match(previewLoader, /event\.origin!==window\.location\.origin/);
+  assert.match(previewLoader, /event\.source!==window\.parent/);
+  assert.match(previewLoader, /izhe-admin-preview-apply/);
+  assert.match(previewLoader, /izhe-preview-ready/);
   assert.match(storyRenderer, /IZHE_applyForegroundImage/);
   assert.match(giveRenderer, /IZHE_applyForegroundImage/);
 });

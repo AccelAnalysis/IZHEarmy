@@ -1,8 +1,7 @@
 'use strict';
 const IZHE_contentParams = new URLSearchParams(location.search);
-const IZHE_contentPreview = IZHE_contentParams.get('contentPreview') === '1';
+const IZHE_contentPreview = IZHE_contentParams.get('contentPreview') === '1' || IZHE_contentParams.get('preview') === '1';
 const IZHE_visualFrame = IZHE_contentParams.get('visualFrame') === '1';
-const IZHE_contentToken = IZHE_contentPreview || IZHE_visualFrame ? localStorage.getItem('izhe-admin-token') || '' : '';
 const IZHE_spacing = { compact: '3.75rem', standard: '5.5rem', generous: '7.5rem' };
 const IZHE_overlayAlpha = { light: .38, medium: .62, strong: .82 };
 const IZHE_foregroundOverlayAlpha = { none: 0, light: .3, medium: .58, strong: .82 };

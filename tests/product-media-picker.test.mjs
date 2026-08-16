@@ -2,22 +2,29 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-const source = fs.readFileSync(new URL('../public/assets/admin-product-media-picker.js', import.meta.url), 'utf8');
-const loader = fs.readFileSync(new URL('../public/assets/admin.js', import.meta.url), 'utf8');
+const productSource = fs.readFileSync(new URL('../public/assets/admin-v2/pages/products.js', import.meta.url), 'utf8');
+const pickerSource = fs.readFileSync(new URL('../public/assets/admin-v2/ui/media-picker.js', import.meta.url), 'utf8');
+const appSource = fs.readFileSync(new URL('../public/assets/admin-v2/app.js', import.meta.url), 'utf8');
 
-test('product editor exposes the existing Media Library picker', () => {
-  assert.doesNotThrow(() => new Function(source));
-  assert.match(loader, /admin-product-media-picker\.js/);
-  assert.match(source, /SELECT FROM MEDIA/);
-  assert.match(source, /openGlobalMediaPicker/);
-  assert.match(source, /title: 'Select product image'/);
+test('product editor uses the shared Admin v2 Media Library picker', () => {
+  assert.match(appSource, /renderProducts/);
+  assert.match(productSource, /mediaPickerButton/);
+  assert.match(productSource, /Choose from Media Library|mediaPickerButton/);
+  assert.match(pickerSource, /const ACTION_LABEL = 'Choose from Media Library'/);
+  assert.match(pickerSource, /openMediaPicker/);
+  assert.match(pickerSource, /Media Library/);
+  assert.doesNotMatch(productSource, /SELECT FROM MEDIA|Choose approved site media/i);
 });
 
-test('selected media is attached safely to the current product', () => {
-  assert.match(source, /image\.id === media\.id \|\| image\.url === media\.url/);
-  assert.match(source, /media\.alt \|\| media\.title \|\| media\.filename/);
-  assert.match(source, /image\.role === 'primary'/);
-  assert.match(source, /role = .*\? 'gallery' : 'primary'/s);
-  assert.match(source, /renderImages\(\)/);
-  assert.match(source, /Save the product to keep the change/);
+test('shared Media Library picker preserves safe selection and eligibility behavior', () => {
+  assert.match(pickerSource, /usageStatus === 'approved_for_site_use'/);
+  assert.match(pickerSource, /rightsStatus === 'cleared'/);
+  assert.match(pickerSource, /Alt text:/);
+  assert.match(pickerSource, /aria-selected/);
+  assert.match(pickerSource, /Clear Selection/);
+  assert.match(pickerSource, /Use Selected Media/);
+  assert.match(pickerSource, /This asset is not eligible in the current context/);
+  assert.match(productSource, /url: media\.thumbnailUrl/);
+  assert.match(productSource, /alt: media\.altText/);
+  assert.match(productSource, /productAccuracyStatus === 'confirmed'/);
 });

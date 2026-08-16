@@ -1,17 +1,38 @@
-import { requireAdmin } from './_shared/admin-auth.mjs';
-import { saveContentRecord } from './_shared/content-service.mjs';
-import { json, methodNotAllowed } from './_shared/http.mjs';
+import { adminEndpoint } from './_shared/admin-auth-v2.mjs';
+import { hasPermission } from './_shared/admin-permissions.mjs';
+import { readJsonBody } from './_shared/admin-request.mjs';
+import { loadContentLibrary, saveContentRecord } from './_shared/content-service.mjs';
+import { json } from './_shared/http.mjs';
 
-export default async (request) => {
-  if (request.method !== 'POST') return methodNotAllowed(['POST']);
-  const denied = requireAdmin(request);
-  if (denied) return denied;
-  try {
-    const payload = await request.json();
-    const result = await saveContentRecord(payload.record, payload.expectedRevision);
-    return json(result);
-  } catch (error) {
-    console.error('admin-save-content', error);
-    return json({ error: error.message || 'Website content could not be saved.' }, error.statusCode || 400);
+function requiresPublishPermission(existing, next) {
+  if (!existing) return next?.status === 'published';
+  return existing.status !== next?.status && (existing.status === 'published' || next?.status === 'published' || next?.status === 'archived');
+}
+
+export default adminEndpoint({
+  methods: ['POST'],
+  permission: 'content.website.write',
+  csrf: true,
+  recentAuth: false,
+  auditAction: 'website_content.save',
+  rateClass: 'write',
+  contentTypes: ['application/json'],
+  maxBodyBytes: 1_000_000
+}, async (request, context) => {
+  const payload = await readJsonBody(request);
+  const current = await loadContentLibrary();
+  const existing = current.library.records.find((record) => record.key === payload.record?.key) || null;
+  if (requiresPublishPermission(existing, payload.record) && !hasPermission(context.permissions, 'content.website.publish')) {
+    throw Object.assign(new Error('Publishing, unpublishing, or archiving website content requires publishing permission.'), { statusCode: 403 });
   }
-};
+  const result = await saveContentRecord(payload.record, payload.expectedRevision);
+  return {
+    response: json(result),
+    audit: {
+      resourceType: 'website_content',
+      resourceId: result.record.key,
+      beforeSummary: existing,
+      afterSummary: result.record
+    }
+  };
+});

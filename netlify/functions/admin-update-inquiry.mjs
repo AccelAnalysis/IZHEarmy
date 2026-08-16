@@ -1,18 +1,34 @@
-import { requireAdmin } from './_shared/admin-auth.mjs';
-import { saveInquiry } from './_shared/campaign-service.mjs';
-import { json, methodNotAllowed } from './_shared/http.mjs';
+import { adminEndpoint } from './_shared/admin-auth-v2.mjs';
+import { readJsonBody } from './_shared/admin-request.mjs';
+import { listInquiries, saveInquiry } from './_shared/campaign-service.mjs';
+import { json } from './_shared/http.mjs';
 
-export default async (request) => {
-  if (request.method !== 'POST') return methodNotAllowed(['POST']);
-  const denied = requireAdmin(request);
-  if (denied) return denied;
-  try {
-    const payload = await request.json();
-    if (!payload.inquiry?.id) return json({ error: 'Inquiry ID is required.' }, 400);
-    const inquiry = await saveInquiry(payload.inquiry, payload.expectedUpdatedAt || '');
-    return json({ inquiry });
-  } catch (error) {
-    console.error('admin-update-inquiry', error);
-    return json({ error: error.message || 'The inquiry could not be updated.' }, error.statusCode || 400);
-  }
-};
+export default adminEndpoint({
+  methods: ['POST'],
+  permission: 'campaigns.write',
+  csrf: true,
+  recentAuth: false,
+  auditAction: 'campaign_inquiry.update',
+  rateClass: 'write',
+  contentTypes: ['application/json'],
+  maxBodyBytes: 250_000
+}, async (request, context) => {
+  const payload = await readJsonBody(request);
+  if (!payload.inquiry?.id) throw Object.assign(new Error('Inquiry ID is required.'), { statusCode: 400 });
+  const existing = (await listInquiries()).find((item) => item.id === payload.inquiry.id) || null;
+  if (!existing) throw Object.assign(new Error('Inquiry not found.'), { statusCode: 404 });
+  const inquiry = await saveInquiry({
+    ...payload.inquiry,
+    lastAdministrativeActorId: context.userId
+  }, payload.expectedUpdatedAt || '');
+  return {
+    response: json({ inquiry }),
+    audit: {
+      resourceType: 'campaign_inquiry',
+      resourceId: inquiry.id,
+      reason: inquiry.notes || '',
+      beforeSummary: existing,
+      afterSummary: inquiry
+    }
+  };
+});

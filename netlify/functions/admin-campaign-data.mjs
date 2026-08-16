@@ -1,11 +1,12 @@
-import { requireAdmin } from './_shared/admin-auth.mjs';
+import { adminEndpoint } from './_shared/admin-auth-v2.mjs';
+import { maskEmail, maskPhone } from './_shared/admin-crypto.mjs';
 import { loadCatalog } from './_shared/catalog-service.mjs';
 import { computeCampaignMetrics } from './_shared/campaign-rules.mjs';
 import { churchBatchReadiness } from './_shared/fulfillment-rules.mjs';
 import { listCampaigns, listInquiries, listStoreJSON } from './_shared/campaign-service.mjs';
-import { json, methodNotAllowed } from './_shared/http.mjs';
+import { json } from './_shared/http.mjs';
 
-const newestFirst = (rows) => rows.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
+const newestFirst = (rows) => [...rows].sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
 
 function campaignAlerts(inquiries, campaigns, reports, now = new Date()) {
   const alerts = [];
@@ -27,39 +28,60 @@ function campaignAlerts(inquiries, campaigns, reports, now = new Date()) {
   return alerts;
 }
 
-export default async (request) => {
-  if (request.method !== 'GET') return methodNotAllowed(['GET']);
-  const denied = requireAdmin(request);
-  if (denied) return denied;
-  try {
-    const [{ catalog }, inquiries, campaigns, orders, codes, redemptions, batches] = await Promise.all([
-      loadCatalog(), listInquiries(), listCampaigns(), listStoreJSON('izhe-orders'), listStoreJSON('izhe-give-codes'), listStoreJSON('izhe-redemptions'), listStoreJSON('izhe-production-batches')
-    ]);
-    const data = { orders, codes, redemptions, batches };
-    const reports = campaigns.map((campaign) => ({ ...computeCampaignMetrics(campaign, data), campaign }));
-    const summary = {
-      inquiryCount: inquiries.length,
-      openInquiryCount: inquiries.filter((item) => !['completed', 'declined', 'converted'].includes(item.status)).length,
-      campaignCount: campaigns.length,
-      activeCampaignCount: campaigns.filter((item) => item.status === 'active').length,
-      totalCampaignRevenue: reports.reduce((sum, item) => sum + item.revenue, 0),
-      totalMinistrySupport: reports.reduce((sum, item) => sum + item.supportAmount, 0),
-      totalCampaignUnits: reports.reduce((sum, item) => sum + item.soldUnits, 0)
-    };
-    return json({
-      inquiries: newestFirst(inquiries),
-      campaigns: newestFirst(campaigns),
-      reports: reports.sort((a, b) => new Date(b.campaign.updatedAt || 0) - new Date(a.campaign.updatedAt || 0)),
-      alerts: campaignAlerts(inquiries, campaigns, reports),
-      summary,
-      catalog: {
-        collections: catalog.collections,
-        products: catalog.products.map(({ id, collectionId, name, shortName, audienceLabel, productType, status, availabilityStatus, images }) => ({ id, collectionId, name, shortName, audienceLabel, productType, status, availabilityStatus, images }))
-      },
-      generatedAt: new Date().toISOString()
-    }, 200, { 'cache-control': 'no-store' });
-  } catch (error) {
-    console.error('admin-campaign-data', error);
-    return json({ error: 'Campaign administration data could not be loaded.' }, 500);
-  }
-};
+export default adminEndpoint({
+  methods: ['GET'],
+  permission: 'campaigns.read',
+  csrf: false,
+  recentAuth: false,
+  auditAction: 'campaign.read',
+  rateClass: 'read'
+}, async () => {
+  const [{ catalog }, inquiries, campaigns, orders, codes, redemptions, batches] = await Promise.all([
+    loadCatalog(), listInquiries(), listCampaigns(), listStoreJSON('izhe-orders'), listStoreJSON('izhe-give-codes'), listStoreJSON('izhe-redemptions'), listStoreJSON('izhe-production-batches')
+  ]);
+  const data = { orders, codes, redemptions, batches };
+  const reports = campaigns.map((campaign) => ({ ...computeCampaignMetrics(campaign, data), campaign }));
+  const summary = {
+    inquiryCount: inquiries.length,
+    openInquiryCount: inquiries.filter((item) => !['completed', 'declined', 'converted'].includes(item.status)).length,
+    campaignCount: campaigns.length,
+    activeCampaignCount: campaigns.filter((item) => item.status === 'active').length,
+    totalCampaignRevenue: reports.reduce((sum, item) => sum + item.revenue, 0),
+    totalMinistrySupport: reports.reduce((sum, item) => sum + item.supportAmount, 0),
+    totalCampaignUnits: reports.reduce((sum, item) => sum + item.soldUnits, 0)
+  };
+  const campaignProjection = newestFirst(campaigns).slice(0, 25).map((campaign) => ({
+    id: campaign.id,
+    title: campaign.title,
+    organization: campaign.organization,
+    status: campaign.status,
+    publishStatus: campaign.publishStatus,
+    fulfillmentMethod: campaign.fulfillmentMethod,
+    startAt: campaign.startAt,
+    endAt: campaign.endAt,
+    updatedAt: campaign.updatedAt
+  }));
+  const inquiryProjection = newestFirst(inquiries).slice(0, 25).map((inquiry) => ({
+    id: inquiry.id,
+    organization: inquiry.organization,
+    contactName: inquiry.contactName ? `${inquiry.contactName.slice(0, 1)}•••` : '',
+    email: maskEmail(inquiry.email),
+    phone: maskPhone(inquiry.phone),
+    status: inquiry.status,
+    followUpAt: inquiry.followUpAt,
+    updatedAt: inquiry.updatedAt
+  }));
+  return json({
+    inquiries: inquiryProjection,
+    campaigns: campaignProjection,
+    alerts: campaignAlerts(inquiries, campaigns, reports).slice(0, 50),
+    summary,
+    catalog: {
+      collections: catalog.collections.map(({ id, title, status, availabilityStatus }) => ({ id, title, status, availabilityStatus })),
+      products: catalog.products.map(({ id, collectionId, name, shortName, productType, status, availabilityStatus }) => ({ id, collectionId, name, shortName, productType, status, availabilityStatus }))
+    },
+    projectionsMasked: true,
+    detailEndpoint: '/.netlify/functions/admin-detail',
+    generatedAt: new Date().toISOString()
+  });
+});

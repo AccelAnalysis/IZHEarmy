@@ -1,31 +1,53 @@
-import { requireAdmin } from './_shared/admin-auth.mjs';
+import { adminEndpoint } from './_shared/admin-auth-v2.mjs';
+import { hasPermission } from './_shared/admin-permissions.mjs';
+import { readJsonBody } from './_shared/admin-request.mjs';
 import { loadCatalog, saveCatalog, validateProduct } from './_shared/catalog-service.mjs';
-import { json, methodNotAllowed } from './_shared/http.mjs';
+import { json } from './_shared/http.mjs';
 
-export default async (request) => {
-  if (request.method !== 'POST') return methodNotAllowed(['POST']);
-  const denied = requireAdmin(request);
-  if (denied) return denied;
-  try {
-    const payload = await request.json();
-    const { catalog, etag } = await loadCatalog();
-    if (payload.expectedRevision != null && Number(payload.expectedRevision) !== catalog.revision) {
-      return json({ error: 'The catalog changed in another session. Reload before saving.' }, 409);
-    }
-    const record = validateProduct(payload.product, catalog.collections);
-    const originalId = String(payload.originalId || '').trim();
-    if (originalId && originalId !== record.id) return json({ error: 'Product IDs cannot be changed after creation.' }, 409);
-    const existing = catalog.products.find((product) => product.id === record.id);
-    if (catalog.products.some((product) => product.id !== record.id && product.lookupKey === record.lookupKey)) {
-      return json({ error: 'Another product already uses this Stripe lookup key.' }, 409);
-    }
-    const products = existing
-      ? catalog.products.map((product) => product.id === record.id ? { ...record, createdAt: product.createdAt } : product)
-      : [...catalog.products, record];
-    const saved = await saveCatalog({ ...catalog, products }, etag);
-    return json({ product: saved.catalog.products.find((product) => product.id === record.id), catalog: saved.catalog, etag: saved.etag });
-  } catch (error) {
-    console.error('admin-save-product', error);
-    return json({ error: error.message || 'The product could not be saved.' }, error.statusCode || 400);
+function requiresPublishPermission(existing, next) {
+  if (!existing) return next.status === 'published';
+  return existing.status !== next.status && (existing.status === 'published' || next.status === 'published' || next.status === 'archived');
+}
+
+export default adminEndpoint({
+  methods: ['POST'],
+  permission: 'catalog.products.write',
+  csrf: true,
+  recentAuth: false,
+  auditAction: 'product.save',
+  rateClass: 'write',
+  contentTypes: ['application/json'],
+  maxBodyBytes: 1_000_000
+}, async (request, context) => {
+  const payload = await readJsonBody(request);
+  const { catalog, etag } = await loadCatalog();
+  if (payload.expectedRevision != null && Number(payload.expectedRevision) !== catalog.revision) {
+    throw Object.assign(new Error('The catalog changed in another session. Reload before saving.'), { statusCode: 409 });
   }
-};
+  const record = validateProduct(payload.product, catalog.collections);
+  const originalId = String(payload.originalId || '').trim();
+  if (originalId && originalId !== record.id) {
+    throw Object.assign(new Error('Product IDs cannot be changed after creation.'), { statusCode: 409 });
+  }
+  const existing = catalog.products.find((product) => product.id === record.id) || null;
+  if (requiresPublishPermission(existing, record) && !hasPermission(context.permissions, 'catalog.products.publish')) {
+    throw Object.assign(new Error('Publishing, unpublishing, or archiving a product requires publishing permission.'), { statusCode: 403 });
+  }
+  if (catalog.products.some((product) => product.id !== record.id && product.lookupKey === record.lookupKey)) {
+    throw Object.assign(new Error('Another product already uses this Stripe lookup key.'), { statusCode: 409 });
+  }
+  const products = existing
+    ? catalog.products.map((product) => product.id === record.id ? { ...record, createdAt: product.createdAt } : product)
+    : [...catalog.products, record];
+  const saved = await saveCatalog({ ...catalog, products }, etag);
+  const product = saved.catalog.products.find((item) => item.id === record.id);
+  return {
+    response: json({ product, catalogRevision: saved.catalog.revision, etag: saved.etag }),
+    audit: {
+      resourceType: 'product',
+      resourceId: product.id,
+      beforeSummary: existing,
+      afterSummary: product
+    }
+  };
+});
